@@ -11,8 +11,14 @@ import repl from "repl";
 import { Command } from "commander";
 import { AmazonTransaction } from "./util";
 import log from "loglevel";
+import prefix from "loglevel-plugin-prefix";
 
 dotenv.config();
+
+// add expected log level prefixes
+prefix.reg(log);
+log.enableAll();
+prefix.apply(log);
 
 if (process.env.LOG_LEVEL) {
   log.setLevel(log.levels[process.env.LOG_LEVEL.toUpperCase()]);
@@ -26,7 +32,7 @@ program
   .option("-v, --verbose", "output verbose logs")
   .requiredOption("-f, --file <path>", "amazon history file")
   .option("-m", "--lunch-money-key <key>", "lunch money api key")
-  .option("-d, --dry-run", "dry run mode")
+  .option("-d, --dry-run", "dry run mode", false)
   .option(
     "-n, --owner-name <name>",
     "the name of the owner of the account, used to determine if a order is a gift"
@@ -120,6 +126,7 @@ const lunchMoneyAmazonTransactions =
     // eliminate all refund transactions
     (transaction) => parseFloat(transaction.amount) > 0
   );
+
 const uncategorizedLunchMoneyAmazonTransactions =
   lunchMoneyAmazonTransactions.filter(
     // filter out transactions that have already been categorized manually
@@ -152,10 +159,6 @@ function findMatchingLunchMoneyTransaction(
   );
 
   if (possibleMatches.length === 0) {
-    if (uncategorizedTransaction.id == 62310098) {
-      const allTheThings = allAmazonTransactions;
-      debugger;
-    }
     return null;
   }
 
@@ -172,57 +175,42 @@ function findMatchingLunchMoneyTransaction(
     (txn) => txn.orderid === matchingTransaction.orderid
   );
 
-  // const matchingTransactionIndex = remainingAmazonTransactions.findIndex(
-  //   (amazonTransaction) =>
-  //     (parseFloat(amazonTransaction.total) ===
-  //       parseFloat(uncategorizedTransaction.amount) ||
-  //       // if the txn has multiple payments, we'll need to check the payments column for a match
-  //       amazonTransaction.payments.includes(normalizedPaymentAmount)) &&
-  //     dateFns.isWithinInterval(new Date(uncategorizedTransaction.date), {
-  //       start: dateFns.subDays(
-  //         new Date(amazonTransaction.date),
-  //         DAY_ADJUSTMENT
-  //       ),
-  //       end: dateFns.addDays(new Date(amazonTransaction.date), DAY_ADJUSTMENT),
-  //     })
-  // );
-
-  // if (uncategorizedTransaction.id == 68746732) {
-  //   debugger;
-  // }
-
-  // if (matchingTransactionIndex === -1) return null;
-
-  // 111-6797289-0764217
   log.debug("removing match", matchingTransaction.orderid);
 
   // once we find a match, we don't watch to try matching this transaction again
   return remainingAmazonTransactions.splice(matchingTransactionIndex, 1)[0];
 }
 
+// TODO this should be an input json, but I'm losing motivation here...
 const categoryRules: { [key: string]: string } = {
-  // 'Kindle Store' =>,
+  "Tools & Home Improvement": "House Maintenance",
+  "Patio, Lawn & Garden": "House Maintenance",
+  "Power & Hand Tools": "House Maintenance",
+  "Home & Kitchen›Furniture": "House Maintenance",
+
   "Baby Products": "Kids",
-  "Tools & Home Improvement": "Home Improvement",
-  "Patio, Lawn & Garden": "Home Improvement",
-  "Power & Hand Tools": "Home Improvement",
   "Toys & Games›Kids": "Kids",
   "Toys & Games›Stuffed Animals & Plush Toys": "Kids",
   "Toys & Games›Dress Up & Pretend Play": "Kids",
   "Toys & Games›Sports & Outdoor Play": "Kids",
-  "Health & Household›Health Care": "Health",
-  "Health & Household›Vitamins, Minerals & Supplements": "Health",
-  "Health & Household›Medical Supplies & Equipment": "Health",
-  "Home & Kitchen›Furniture": "Home Improvement",
-  Automotive: "Auto",
+
+  "Health & Household›Health Care": "Health Expenses",
+  "Health & Household›Vitamins, Minerals & Supplements": "Health Expenses",
+  "Health & Household›Medical Supplies & Equipment": "Health Expenses",
+
+  Automotive: "Auto Service",
+
   "Kindle Store": "Books",
   Books: "Books",
+
   "Grocery & Gourmet Food": "Groceries",
+
   "Clothing, Shoes & Jewelry": "Clothing",
+  "Beauty & Personal Care": "Personal Care",
+
   "Sports & Outdoors›Sports": "Entertainment",
   "Sports & Outdoors›Outdoor Recreation": "Entertainment",
   "Sports & Outdoors›Exercise & Fitness": "Gym",
-  "Beauty & Personal Care": "Personal Care",
 };
 
 function orderIsGift(transaction: AmazonTransaction) {
@@ -234,7 +222,7 @@ function orderIsGift(transaction: AmazonTransaction) {
   return transaction.to != options.ownerName;
 }
 
-for (const uncategorizedAmazonTransaction of uncategorizedLunchMoneyAmazonTransactions) {
+for (const uncategorizedAmazonTransaction of lunchMoneyAmazonTransactions) {
   const matchingAmazonTransaction = findMatchingLunchMoneyTransaction(
     uncategorizedAmazonTransaction,
     amazonTransactions
@@ -247,7 +235,13 @@ for (const uncategorizedAmazonTransaction of uncategorizedLunchMoneyAmazonTransa
     continue;
   }
 
-  let targetCategoryName: string | null;
+  // TODO maybe allow for an overwrite?
+  if (uncategorizedAmazonTransaction.category_id !== defaultCategoryId) {
+    log.debug("already categorized, but matched. Skipping");
+    continue;
+  }
+
+  let targetCategoryName: string | null = null;
 
   if (orderIsGift(matchingAmazonTransaction)) {
     log.debug("identified gift", matchingAmazonTransaction);
@@ -263,7 +257,7 @@ for (const uncategorizedAmazonTransaction of uncategorizedLunchMoneyAmazonTransa
   }
 
   if (!targetCategoryName) {
-    console.log(
+    log.info(
       `no rule\t${uncategorizedAmazonTransaction.id}\t${matchingAmazonTransaction.categories}`
     );
 
@@ -298,7 +292,13 @@ for (const uncategorizedAmazonTransaction of uncategorizedLunchMoneyAmazonTransa
         notes: newNote,
       }
     );
-    log.info(response);
-    break;
+
+    if (!response.updated) {
+      log.error("failed to update transaction", response);
+    } else {
+      log.info(response);
+    }
   }
 }
+
+log.info(`Remaining uncategorized transactions: ${amazonTransactions.length}`);
