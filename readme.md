@@ -37,3 +37,4 @@ node out/run.js -f '/Users/name/Downloads/amazon_order_history.csv' -c Shopping 
 
 - [ ] Should match up refunds and categorize them appropriately
 - [ ] Mapping JSON should be a CLI argument
+- [ ] Indicate which purchases are HSA/FSA eligible and maybe generate receipt?
