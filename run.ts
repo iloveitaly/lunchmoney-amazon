@@ -1,13 +1,12 @@
 // github:lunch-money/lunch-money-js
 
 import { LunchMoney, Transaction as LunchMoneyTransaction } from "lunch-money";
-import { readCSV } from "./util.js";
+import { readCSV, AmazonTransaction } from "./util.js";
 import dotenv from "dotenv";
 import dateFns from "date-fns";
 import fs from "fs";
 import { Command } from "commander";
-import { AmazonTransaction } from "./util";
-import log from "loglevel";
+import log, { LogLevelNames } from "loglevel";
 import prefix from "loglevel-plugin-prefix";
 
 dotenv.config();
@@ -18,7 +17,8 @@ log.enableAll();
 prefix.apply(log);
 
 if (process.env.LOG_LEVEL) {
-  log.setLevel(log.levels[process.env.LOG_LEVEL.toUpperCase()]);
+  const logLevelFromEnv = process.env.LOG_LEVEL.toLowerCase() as LogLevelNames;
+  log.setLevel(logLevelFromEnv);
 } else {
   log.setLevel(log.levels.INFO);
 }
