@@ -14,7 +14,7 @@ The trick is, Amazon doesn't have an order export. There's a sneaky extension th
 1. Use the [amazon order scraper](https://github.com/philipmulcahy/azad) to pull your amazon history.
 2. Get a lunch money API key. Run `cp .env-example .env` and add your API key to `.env`, or input it directly via the command line.
 
-```
+```shell
 Usage: run [options]
 
 Options:
@@ -29,11 +29,11 @@ Options:
 
 Here's an example command:
 
-```
+```shell
 node out/run.js -f '/Users/name/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco"
 ```
 
-# TODO
+## TODO
 
 - [ ] Should match up refunds and categorize them appropriately
 - [ ] Mapping JSON should be a CLI argument

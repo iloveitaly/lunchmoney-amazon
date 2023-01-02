@@ -1,7 +1,7 @@
 // github:lunch-money/lunch-money-js
 
 import { LunchMoney, Transaction as LunchMoneyTransaction } from "lunch-money";
-import { readCSV, writeCSV } from "./util.js";
+import { readCSV } from "./util.js";
 import dotenv from "dotenv";
 import dateFns from "date-fns";
 import fs from "fs";
@@ -225,7 +225,7 @@ function orderIsGift(transaction: AmazonTransaction) {
     return false;
   }
 
-  return transaction.to != options.ownerName;
+  return transaction.to !== options.ownerName;
 }
 
 for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransactions) {
