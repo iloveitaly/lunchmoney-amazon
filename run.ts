@@ -1,5 +1,3 @@
-// github:lunch-money/lunch-money-js
-
 import { LunchMoney, Transaction as LunchMoneyTransaction } from "lunch-money";
 import { readCSV, AmazonTransaction } from "./util.js";
 import dotenv from "dotenv";
@@ -181,7 +179,7 @@ function findMatchingLunchMoneyTransaction(
     (txn) => txn.orderid.trim() === matchingTransaction.orderid.trim()
   );
 
-  log.debug("removing match", matchingTransaction.orderid);
+  log.debug("removing matched transaction", matchingTransaction.orderid);
 
   // once we find a match, we don't watch to try matching this transaction again, so we remove it from the array
   return remainingAmazonTransactions.splice(matchingTransactionIndex, 1)[0];
@@ -193,18 +191,23 @@ const categoryRules: { [key: string]: string } = {
   "Patio, Lawn & Garden": "House Maintenance",
   "Power & Hand Tools": "House Maintenance",
   "Home & Kitchen›Furniture": "House Maintenance",
+  "Appliances›Parts & Accessories": "House Maintenance",
 
   "Baby Products": "Kids",
   "Toys & Games›Kids": "Kids",
   "Toys & Games›Stuffed Animals & Plush Toys": "Kids",
   "Toys & Games›Dress Up & Pretend Play": "Kids",
   "Toys & Games›Sports & Outdoor Play": "Kids",
+  "Arts, Crafts & Sewing": "Kids",
+  "Health & Household›Oral Care›Baby & Child Dental Care": "Kids",
+  "Toys & Games": "Kids",
 
   "Health & Household›Health Care": "Health Expenses",
   "Health & Household›Vitamins, Minerals & Supplements": "Health Expenses",
   "Health & Household›Medical Supplies & Equipment": "Health Expenses",
 
-  Automotive: "Auto Service",
+  Automotive: "Auto",
+  "Cell Phones & Accessories›Accessories›Automobile Accessories": "Auto",
 
   "Kindle Store": "Books",
   Books: "Books",
