@@ -43,7 +43,7 @@ export const readJSONFile = (path: string): any | null => {
 
 // TODO should type the resulting object here for better checking downstream
 export const readCSV = async (
-  filePath: string
+  filePath: string,
 ): Promise<AmazonTransaction[]> => {
   const csvFile = fs.readFileSync(filePath);
   const csvData = csvFile.toString();
