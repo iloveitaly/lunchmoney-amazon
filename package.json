@@ -16,7 +16,7 @@
     "loglevel-plugin-prefix": "^0.8.4",
     "lunch-money": "^0.5.0",
     "papaparse": "^5.4.1",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   },
   "devDependencies": {
