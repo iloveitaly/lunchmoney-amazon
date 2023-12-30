@@ -1,11 +1,13 @@
 import { LunchMoney, Transaction as LunchMoneyTransaction } from "lunch-money";
 import { readCSV, AmazonTransaction } from "./util.js";
 import dotenv from "dotenv";
-import dateFns from "date-fns";
+import * as dateFns from "date-fns";
 import fs from "fs";
 import { Command } from "commander";
-import log, { LogLevelNames } from "loglevel";
+import log, { LogLevelNames, debug } from "loglevel";
 import prefix from "loglevel-plugin-prefix";
+
+import path from "path";
 
 dotenv.config();
 
@@ -22,15 +24,18 @@ if (process.env.LOG_LEVEL) {
 }
 
 const program = new Command();
+program.name("amazon-lunchmoney");
 
+// the fact that all option schema is extracted from a single string is annoying, node libs are so poorly designed!
 program
   .option("-v, --verbose", "output verbose logs")
   .requiredOption("-f, --file <path>", "amazon history file")
-  .option("-m --lunch-money-key <key>", "lunch money api key")
+  .option("-k --lunch-money-key <key>", "lunch money api key")
+  .option("-m --mapping-file <path>", "category mapping file")
   .option("-d, --dry-run", "dry run mode", false)
   .option(
-    "-n, --owner-name <name>",
-    "the name of the owner of the account, used to determine if a order is a gift",
+    "-n, --owner-names <name...>",
+    "name of the owner(s) of the account, used to determine if a order is a gift",
   )
   .requiredOption("-c, --default-category <category>", "default category");
 
@@ -79,9 +84,14 @@ if (!fs.existsSync(csvFile)) {
 
 const allAmazonTransactions = await readCSV(csvFile);
 const amazonTransactions = allAmazonTransactions.filter(
-  // filter out $0 transactions (paid by gift card), they'll be no matching entry in LM
-  // also filter out transactions that do not have a category set
-  (transaction) => transaction.total !== "0" && transaction.categories,
+  // filter out
+  //    - $0 transactions(paid by gift card), they'll be no matching entry in LM
+  //    - transactions that do not have a category set
+  //    - transactions with a "pending" item (could not be scraped)
+  (transaction) =>
+    transaction.total !== "0" &&
+    transaction.categories &&
+    transaction.items !== "pending",
 );
 
 log.info(
@@ -185,50 +195,24 @@ function findMatchingLunchMoneyTransaction(
   return remainingAmazonTransactions.splice(matchingTransactionIndex, 1)[0];
 }
 
-// TODO this should be an input json, but I'm losing motivation here...
-const categoryRules: { [key: string]: string } = {
-  "Tools & Home Improvement": "House Maintenance",
-  "Patio, Lawn & Garden": "House Maintenance",
-  "Power & Hand Tools": "House Maintenance",
-  "Home & Kitchen›Furniture": "House Maintenance",
-  "Appliances›Parts & Accessories": "House Maintenance",
+const defaultMappingFile = path.join(__dirname, "default_mapping.json");
+const categoryMappingFile = options.mappingFile ?? defaultMappingFile;
 
-  "Baby Products": "Kids",
-  "Toys & Games›Kids": "Kids",
-  "Toys & Games›Stuffed Animals & Plush Toys": "Kids",
-  "Toys & Games›Dress Up & Pretend Play": "Kids",
-  "Toys & Games›Sports & Outdoor Play": "Kids",
-  "Arts, Crafts & Sewing": "Kids",
-  "Health & Household›Oral Care›Baby & Child Dental Care": "Kids",
-  "Toys & Games": "Kids",
+const categoryRules: { [key: string]: string } = JSON.parse(
+  fs.readFileSync(categoryMappingFile, "utf8"),
+);
 
-  "Health & Household›Health Care": "Health Expenses",
-  "Health & Household›Vitamins, Minerals & Supplements": "Health Expenses",
-  "Health & Household›Medical Supplies & Equipment": "Health Expenses",
-
-  Automotive: "Auto",
-  "Cell Phones & Accessories›Accessories›Automobile Accessories": "Auto",
-
-  "Kindle Store": "Books",
-  Books: "Books",
-
-  "Grocery & Gourmet Food": "Groceries",
-
-  "Clothing, Shoes & Jewelry": "Clothing",
-  "Beauty & Personal Care": "Personal Care",
-
-  "Sports & Outdoors›Sports": "Entertainment",
-  "Sports & Outdoors›Outdoor Recreation": "Entertainment",
-  "Sports & Outdoors›Exercise & Fitness": "Gym",
-};
+const ownerNames: string[] = options.ownerNames.map((name: string) =>
+  name.toLowerCase().trim(),
+);
 
 function orderIsGift(transaction: AmazonTransaction) {
   // in some cases '0' is returned by the scraper, we want to exclude these values
-  if (!options.ownerName || !transaction.to || transaction.to === "0") {
+  if (!ownerNames || !transaction.to || transaction.to === "0") {
     return false;
   }
 
-  return transaction.to !== options.ownerName;
+  return !ownerNames.includes(transaction.to.toLowerCase().trim());
 }
 
 for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransactions) {
@@ -245,6 +229,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
   }
 
   // TODO maybe allow for an overwrite option?
+  // NOTE this will not be hit since we are filtering out transactions that have already been categorized from the LM side
   if (
     uncategorizedLunchMoneyAmazonTransaction.category_id !== defaultCategoryId
   ) {
