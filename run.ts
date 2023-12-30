@@ -30,7 +30,7 @@ program
   .option("-d, --dry-run", "dry run mode", false)
   .option(
     "-n, --owner-name <name>",
-    "the name of the owner of the account, used to determine if a order is a gift"
+    "the name of the owner of the account, used to determine if a order is a gift",
   )
   .requiredOption("-c, --default-category <category>", "default category");
 
@@ -58,7 +58,7 @@ const lunchMoneyCategories = await lunchMoney.getCategories();
 
 function categoryNameToId(categoryName: string) {
   return lunchMoneyCategories.find(
-    (category) => !category.is_group && category.name === categoryName
+    (category) => !category.is_group && category.name === categoryName,
   )?.id;
 }
 
@@ -81,11 +81,11 @@ const allAmazonTransactions = await readCSV(csvFile);
 const amazonTransactions = allAmazonTransactions.filter(
   // filter out $0 transactions (paid by gift card), they'll be no matching entry in LM
   // also filter out transactions that do not have a category set
-  (transaction) => transaction.total !== "0" && transaction.categories
+  (transaction) => transaction.total !== "0" && transaction.categories,
 );
 
 log.info(
-  `Amazon transactions we can match: ${amazonTransactions.length} (out of ${allAmazonTransactions.length})`
+  `Amazon transactions we can match: ${amazonTransactions.length} (out of ${allAmazonTransactions.length})`,
 );
 
 // determine starting and ending date range from the dates in the order history scrape file
@@ -121,12 +121,12 @@ const allLunchMoneyTransactions = await lunchMoney.getTransactions({
 const lunchMoneyAmazonTransactionsWithRefunds =
   allLunchMoneyTransactions.filter(
     // TODO do we need to any sort of regex matching here? More fancy matching?
-    (transaction) => transaction.payee === "Amazon"
+    (transaction) => transaction.payee === "Amazon",
   );
 const lunchMoneyAmazonTransactions =
   lunchMoneyAmazonTransactionsWithRefunds.filter(
     // eliminate all refund transactions from amazno
-    (transaction) => parseFloat(transaction.amount) > 0
+    (transaction) => parseFloat(transaction.amount) > 0,
   );
 
 // we only use this transformation for logging and debugging
@@ -134,19 +134,19 @@ const uncategorizedLunchMoneyAmazonTransactions =
   lunchMoneyAmazonTransactions.filter(
     // filter out transactions that have already been categorized manually
     // this assumes you have a default rule set up in LM for amazon transaction
-    (transaction) => transaction.category_id === defaultCategoryId
+    (transaction) => transaction.category_id === defaultCategoryId,
   );
 
 log.info(
-  `Lunch Money transactions we can match: ${uncategorizedLunchMoneyAmazonTransactions.length} (out of ${allLunchMoneyTransactions.length})`
+  `Lunch Money transactions we can match: ${uncategorizedLunchMoneyAmazonTransactions.length} (out of ${allLunchMoneyTransactions.length})`,
 );
 
 function findMatchingLunchMoneyTransaction(
   uncategorizedTransaction: LunchMoneyTransaction,
-  remainingAmazonTransactions: AmazonTransaction[]
+  remainingAmazonTransactions: AmazonTransaction[],
 ) {
   const normalizedPaymentAmount = parseFloat(
-    uncategorizedTransaction.amount
+    uncategorizedTransaction.amount,
   ).toFixed(2);
 
   const parsedDate = new Date(uncategorizedTransaction.date);
@@ -159,7 +159,7 @@ function findMatchingLunchMoneyTransaction(
       parseFloat(amazonTransaction.total) ===
         parseFloat(uncategorizedTransaction.amount) ||
       // if the txn has multiple payments, we'll need to check the payments column for a match
-      amazonTransaction.payments.includes(normalizedPaymentAmount)
+      amazonTransaction.payments.includes(normalizedPaymentAmount),
   );
 
   if (possibleMatches.length === 0) {
@@ -171,12 +171,12 @@ function findMatchingLunchMoneyTransaction(
   possibleMatches.sort(
     (one: AmazonTransaction, two: AmazonTransaction) =>
       Math.abs(dateFns.differenceInDays(parsedDate, new Date(one.date))) -
-      Math.abs(dateFns.differenceInDays(parsedDate, new Date(two.date)))
+      Math.abs(dateFns.differenceInDays(parsedDate, new Date(two.date))),
   );
 
   const matchingTransaction = possibleMatches[0];
   const matchingTransactionIndex = remainingAmazonTransactions.findIndex(
-    (txn) => txn.orderid.trim() === matchingTransaction.orderid.trim()
+    (txn) => txn.orderid.trim() === matchingTransaction.orderid.trim(),
   );
 
   log.debug("removing matched transaction", matchingTransaction.orderid);
@@ -234,12 +234,12 @@ function orderIsGift(transaction: AmazonTransaction) {
 for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransactions) {
   const matchingAmazonTransaction = findMatchingLunchMoneyTransaction(
     uncategorizedLunchMoneyAmazonTransaction,
-    amazonTransactions
+    amazonTransactions,
   );
 
   if (!matchingAmazonTransaction) {
     log.warn(
-      `no match\t${uncategorizedLunchMoneyAmazonTransaction.id}\t${uncategorizedLunchMoneyAmazonTransaction.amount}\t${uncategorizedLunchMoneyAmazonTransaction.payee}\t${uncategorizedLunchMoneyAmazonTransaction.notes}\t${uncategorizedLunchMoneyAmazonTransaction.date}`
+      `no match\t${uncategorizedLunchMoneyAmazonTransaction.id}\t${uncategorizedLunchMoneyAmazonTransaction.amount}\t${uncategorizedLunchMoneyAmazonTransaction.payee}\t${uncategorizedLunchMoneyAmazonTransaction.notes}\t${uncategorizedLunchMoneyAmazonTransaction.date}`,
     );
     continue;
   }
@@ -257,7 +257,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
     uncategorizedLunchMoneyAmazonTransaction.group_id
   ) {
     log.warn(
-      `skipping group transaction ${uncategorizedLunchMoneyAmazonTransaction.id}`
+      `skipping group transaction ${uncategorizedLunchMoneyAmazonTransaction.id}`,
     );
     continue;
   }
@@ -270,7 +270,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
     targetCategoryName = "Gifts";
   } else {
     const matchingKey = Object.keys(categoryRules).find((key) =>
-      matchingAmazonTransaction.categories.startsWith(key)
+      matchingAmazonTransaction.categories.startsWith(key),
     );
 
     if (matchingKey) {
@@ -288,7 +288,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
 
   if (!targetCategoryName) {
     log.info(
-      `no rule match for\t${uncategorizedLunchMoneyAmazonTransaction.id}\t${matchingAmazonTransaction.categories}`
+      `no rule match for\t${uncategorizedLunchMoneyAmazonTransaction.id}\t${matchingAmazonTransaction.categories}`,
     );
 
     // TODO we want to update the transaction to have a note, even if we don't change the category
@@ -297,7 +297,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
         uncategorizedLunchMoneyAmazonTransaction.id,
         {
           notes: newNote,
-        }
+        },
       );
 
       if (!response.updated) {
@@ -310,7 +310,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
   }
 
   log.debug(
-    `match\t${matchingAmazonTransaction.date} : ${uncategorizedLunchMoneyAmazonTransaction.date} : ${uncategorizedLunchMoneyAmazonTransaction.amount} : ${matchingAmazonTransaction.total} : ${uncategorizedLunchMoneyAmazonTransaction.id}`
+    `match\t${matchingAmazonTransaction.date} : ${uncategorizedLunchMoneyAmazonTransaction.date} : ${uncategorizedLunchMoneyAmazonTransaction.amount} : ${matchingAmazonTransaction.total} : ${uncategorizedLunchMoneyAmazonTransaction.id}`,
   );
 
   const newCategoryId = categoryNameToId(targetCategoryName);
@@ -320,7 +320,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
   }
 
   log.info(
-    `updating transaction ${uncategorizedLunchMoneyAmazonTransaction.id}`
+    `updating transaction ${uncategorizedLunchMoneyAmazonTransaction.id}`,
   );
   log.debug("content of update", newNote, newCategoryId);
 
@@ -333,7 +333,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
 
     const response = await lunchMoney.updateTransaction(
       uncategorizedLunchMoneyAmazonTransaction.id,
-      updateOptions
+      updateOptions,
     );
 
     if (!response.updated) {
