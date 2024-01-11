@@ -36,6 +36,12 @@
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-prettier": "^5.1.2",
     "eslint-plugin-promise": "^6.1.1",
-    "typesync": "^0.12.0"
+    "typesync": "^0.12.0",
+    "bun-types": "latest"
+  },
+  "name": "lunchmoney-amazon",
+  "module": "index.ts",
+  "peerDependencies": {
+    "typescript": "^5.0.0"
   }
 }
