@@ -3,7 +3,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "start": "node out/run.js",
+    "start": "bun run index.ts",
     "lint": "eslint",
     "format": "prettier --write '**/*.{ts,js}'"
   },
