@@ -6,8 +6,19 @@ The trick is, Amazon doesn't have an order export. There's a sneaky extension th
 
 ## Setup
 
-1. `asdf install` and `npm install` to setup node & npm packages
-2. Optional: `tsc .` to compile the typescript
+To install dependencies:
+
+```bash
+bun install
+```
+
+To run:
+
+```bash
+bun run index.ts
+# or
+bun run start
+```
 
 ## Usage
 
@@ -32,15 +43,7 @@ Options:
 Here's an example command:
 
 ```shell
-node out/run.js -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco"
-```
-
-## Development
-
-Development with bun is easier:
-
-```shell
-bun run.ts --help
+bun run start -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco"
 ```
 
 ## TODO
@@ -49,3 +52,5 @@ bun run.ts --help
 - [ ] publish on npm
 - [ ] Should match up refunds and categorize them appropriately
 - [ ] add item name to notes
+
+This project was created using `bun init` in bun v1.0.13. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
