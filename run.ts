@@ -8,6 +8,7 @@ import log, { LogLevelNames, debug } from "loglevel";
 import prefix from "loglevel-plugin-prefix";
 
 import path from "path";
+import { OpenAI } from "openai";
 
 dotenv.config();
 
@@ -32,6 +33,7 @@ program
   .requiredOption("-f, --file <path>", "amazon history file")
   .option("-k --lunch-money-key <key>", "lunch money api key")
   .option("-m --mapping-file <path>", "category mapping file")
+  .option("-a, --use-openai", "pick category with openai")
   .option("-d, --dry-run", "dry run mode", false)
   .option(
     "-n, --owner-names <name...>",
@@ -61,12 +63,76 @@ if (!lunchMoneyKey) {
 const lunchMoney = new LunchMoney({ token: lunchMoneyKey });
 const lunchMoneyCategories = await lunchMoney.getCategories();
 
+// regardless of if the user chooses to use chatgpt, let's generate a prompt for the user
+const promptCategories =   lunchMoneyCategories
+    .filter(
+      (category) =>
+        !category.is_income &&
+        !category.archived &&
+        !category.exclude_from_budget &&
+        !category.is_group,
+    )
+    // limit the data passed to chatgpt
+const promptCategoriesJson = JSON.stringify(
+  promptCategories.map(({ id, name, description }) => ({
+      id,
+      name,
+      description,
+    })),
+);
+
+function generateCategoryPrompt(transactionItems: string) {
+  return `
+Here is a list of categories in a personal finance tool:
+
+\`\`\`json
+${promptCategoriesJson}
+\`\`\`
+
+Here is a description of a group of items purchased from Amazon:
+
+\`\`\`
+${transactionItems}
+\`\`\`
+
+Pick the category that best matches the list of items above. Only return the ID.
+`  
+}
+
+async function pickCategoryWithAI(transactionItems: string): Promise<number | null> {
+  const prompt = generateCategoryPrompt(transactionItems);
+  const openai = new OpenAI();
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: 50,
+    temperature: 0,
+  });
+
+  const chosenText = response.choices[0].message?.content?.trim();
+  
+  if(!chosenText) {
+    return null;
+  }
+
+  const chosenId = parseInt(chosenText, 10);
+
+  if (isNaN(chosenId) || !promptCategories.some((cat) => cat.id === chosenId)) {
+    return null;
+  }
+
+  return chosenId;
+}
+
+// find a LM category ID by name
 function categoryNameToId(categoryName: string) {
   return lunchMoneyCategories.find(
     (category) => !category.is_group && category.name === categoryName,
   )?.id;
 }
 
+// default is pulled from CLI options
 const defaultCategoryId = categoryNameToId(defaultCategoryName);
 
 if (!defaultCategoryId) {
@@ -90,9 +156,18 @@ const amazonTransactions = allAmazonTransactions.filter(
   //    - transactions with a "pending" item (could not be scraped)
   (transaction) =>
     transaction.total !== "0" &&
-    transaction.categories &&
+    transaction.date !== "pending" &&
+    transaction.date !== "?" &&
     transaction.items !== "pending",
 );
+
+if (amazonTransactions.length === 0) {
+  log.error(
+    "No transactions found after filtering. Original transaction count:",
+    allAmazonTransactions.length,
+  );
+  process.exit(1);
+}
 
 log.info(
   `Amazon transactions we can match: ${amazonTransactions.length} (out of ${allAmazonTransactions.length})`,
@@ -253,13 +328,15 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
     log.debug("identified gift", matchingAmazonTransaction);
     // TODO this should not be hardcoded
     targetCategoryName = "Gifts";
-  } else {
-    const matchingKey = Object.keys(categoryRules).find((key) =>
-      matchingAmazonTransaction.categories.startsWith(key),
-    );
+  } else if(options.useOpenai) {
+    const chosenCategoryId = await pickCategoryWithAI(matchingAmazonTransaction.items);
 
-    if (matchingKey) {
-      targetCategoryName = categoryRules[matchingKey];
+    // kind of silly to convert to name, but makes the rest of the code more simple
+    if (chosenCategoryId) {
+      log.debug(`AI chose category ${chosenCategoryId} for items: ${matchingAmazonTransaction.items}`);
+      targetCategoryName = promptCategories.find((cat) => cat.id === chosenCategoryId)?.name ?? null;
+    } else {
+      log.warn("AI could not match transaction", matchingAmazonTransaction);
     }
   }
 
