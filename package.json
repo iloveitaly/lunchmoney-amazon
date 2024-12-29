@@ -18,6 +18,7 @@
     "loglevel": "^1.9.2",
     "loglevel-plugin-prefix": "^0.8.4",
     "lunch-money": "^0.5.0",
+    "openai": "^4.77.0",
     "papaparse": "^5.4.1",
     "typescript": "^5.7.2"
   },
