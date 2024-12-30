@@ -3,7 +3,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "start": "node out/run.js",
+    "start": "bun run.ts",
     "lint": "eslint",
     "format": "prettier --write '**/*.{ts,js}'"
   },
@@ -14,7 +14,6 @@
     "commander": "^12.1.0",
     "csv-parse": "^5.6.0",
     "date-fns": "^4.1.0",
-    "dotenv": "^16.4.7",
     "loglevel": "^1.9.2",
     "loglevel-plugin-prefix": "^0.8.4",
     "lunch-money": "^0.5.0",
