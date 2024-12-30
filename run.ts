@@ -1,21 +1,21 @@
 import { LunchMoney, Transaction as LunchMoneyTransaction } from "lunch-money";
-import { readCSV, AmazonTransaction } from "./util.js";
-import dotenv from "dotenv";
+import { readCSV, AmazonTransaction, getAllTransactionsPaging } from "./util.js";
 import * as dateFns from "date-fns";
 import fs from "fs";
 import { Command } from "commander";
 import log, { LogLevelNames, debug } from "loglevel";
 import prefix from "loglevel-plugin-prefix";
 
-import path from "path";
 import { OpenAI } from "openai";
 
-dotenv.config();
 
 // add expected log level prefixes
 prefix.reg(log);
 log.enableAll();
 prefix.apply(log);
+
+// from docs: https://lunchmoney.dev/#update-transaction
+const LUNCHMONEY_NOTE_LIMIT = 350
 
 if (process.env.LOG_LEVEL) {
   const logLevelFromEnv = process.env.LOG_LEVEL.toLowerCase() as LogLevelNames;
@@ -32,8 +32,6 @@ program
   .option("-v, --verbose", "output verbose logs")
   .requiredOption("-f, --file <path>", "amazon history file")
   .option("-k --lunch-money-key <key>", "lunch money api key")
-  .option("-m --mapping-file <path>", "category mapping file")
-  .option("-a, --use-openai", "pick category with openai")
   .option("-d, --dry-run", "dry run mode", false)
   .option(
     "-n, --owner-names <name...>",
@@ -81,7 +79,7 @@ const promptCategoriesJson = JSON.stringify(
     })),
 );
 
-function generateCategoryPrompt(transactionItems: string) {
+function generateSummaryPrompt(transactionItems: string) {
   return `
 Here is a list of categories in a personal finance tool:
 
@@ -95,12 +93,30 @@ Here is a description of a group of items purchased from Amazon:
 ${transactionItems}
 \`\`\`
 
-Pick the category that best matches the list of items above. Only return the ID.
+Pick the category that best matches the list of items above. Include only the ID in an \`id\` JSON field.
+
+Summary the items purchased into a handful of words. Include this summary in a \`summary\` JSON field.
+
+Here is an example response:
+
+\`\`\`json
+{
+  "id": 123,
+  "summary": "Online groceries"
+}
+\`\`\`
+
+Include only raw JSON, no codefences.
 `  
 }
 
-async function pickCategoryWithAI(transactionItems: string): Promise<number | null> {
-  const prompt = generateCategoryPrompt(transactionItems);
+interface AITransactionSummary {
+  id: number | null;
+  summary: string;
+}
+
+async function aiTransactionSummary(transactionItems: string): Promise<AITransactionSummary> {
+  const prompt = generateSummaryPrompt(transactionItems);
   const openai = new OpenAI();
 
   const response = await openai.chat.completions.create({
@@ -110,19 +126,21 @@ async function pickCategoryWithAI(transactionItems: string): Promise<number | nu
     temperature: 0,
   });
 
-  const chosenText = response.choices[0].message?.content?.trim();
+  const chosenText = response.choices[0].message?.content;
   
   if(!chosenText) {
-    return null;
+    return { id: null, summary: "" };
   }
 
-  const chosenId = parseInt(chosenText, 10);
+  const parsedResponse = JSON.parse(chosenText)
+
+  const chosenId = parseInt(parsedResponse.id, 10);
 
   if (isNaN(chosenId) || !promptCategories.some((cat) => cat.id === chosenId)) {
-    return null;
+    return { id: null, summary: parsedResponse.summary };
   }
 
-  return chosenId;
+  return parsedResponse;
 }
 
 // find a LM category ID by name
@@ -154,11 +172,14 @@ const amazonTransactions = allAmazonTransactions.filter(
   //    - $0 transactions(paid by gift card), they'll be no matching entry in LM
   //    - transactions that do not have a category set
   //    - transactions with a "pending" item (could not be scraped)
+  //    - transactions without a date
   (transaction) =>
     transaction.total !== "0" &&
     transaction.date !== "pending" &&
     transaction.date !== "?" &&
-    transaction.items !== "pending",
+    transaction.date !== "" &&
+    transaction.items !== "pending" &&
+    transaction.items !== "",
 );
 
 if (amazonTransactions.length === 0) {
@@ -197,10 +218,19 @@ const DAY_ADJUSTMENT = 7;
 const startDate = dateFns.subDays(minDate, DAY_ADJUSTMENT);
 const endDate = dateFns.addDays(maxDate, DAY_ADJUSTMENT);
 
-const allLunchMoneyTransactions = await lunchMoney.getTransactions({
-  start_date: dateFns.format(startDate, "yyyy-MM-dd"),
-  end_date: dateFns.format(endDate, "yyyy-MM-dd"),
-});
+// TODO check if we can filter by payee in the future... can't do this right now
+// const allLunchMoneyTransactions = await lunchMoney.getTransactions({
+//   start_date: dateFns.format(startDate, "yyyy-MM-dd"),
+//   end_date: dateFns.format(endDate, "yyyy-MM-dd"),
+// });
+
+const allLunchMoneyTransactions = await getAllTransactionsPaging(
+  lunchMoney,
+  startDate,
+  endDate,
+);
+
+log.debug("all transactions pulled", allLunchMoneyTransactions.length);
 
 // LM does not all us to search for a transaction by payee criteria, so we need to apply that filter here
 const lunchMoneyAmazonTransactionsWithRefunds =
@@ -240,11 +270,8 @@ function findMatchingLunchMoneyTransaction(
   // the reason for this is the date of the transaction can be very different from the date of the amazon transaction
   const possibleMatches = remainingAmazonTransactions.filter(
     (amazonTransaction) =>
-      // TODO there are probably some FPA errors lurking here, but I'm lazy
-      parseFloat(amazonTransaction.total) ===
-        parseFloat(uncategorizedTransaction.amount) ||
-      // if the txn has multiple payments, we'll need to check the payments column for a match
-      amazonTransaction.payments.includes(normalizedPaymentAmount),
+      parseFloat(amazonTransaction.total).toFixed(2) ===
+        normalizedPaymentAmount
   );
 
   if (possibleMatches.length === 0) {
@@ -269,13 +296,6 @@ function findMatchingLunchMoneyTransaction(
   // once we find a match, we don't watch to try matching this transaction again, so we remove it from the array
   return remainingAmazonTransactions.splice(matchingTransactionIndex, 1)[0];
 }
-
-const defaultMappingFile = path.join(__dirname, "default_mapping.json");
-const categoryMappingFile = options.mappingFile ?? defaultMappingFile;
-
-const categoryRules: { [key: string]: string } = JSON.parse(
-  fs.readFileSync(categoryMappingFile, "utf8"),
-);
 
 const ownerNames: string[] = options.ownerNames.map((name: string) =>
   name.toLowerCase().trim(),
@@ -323,27 +343,39 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
   }
 
   let targetCategoryName: string | null = null;
+  let transactionSummary = null
 
   if (orderIsGift(matchingAmazonTransaction)) {
     log.debug("identified gift", matchingAmazonTransaction);
     // TODO this should not be hardcoded
     targetCategoryName = "Gifts";
-  } else if(options.useOpenai) {
-    const chosenCategoryId = await pickCategoryWithAI(matchingAmazonTransaction.items);
+  } else  {
+    const summaryResponse = await aiTransactionSummary(matchingAmazonTransaction.items);
+    transactionSummary = summaryResponse.summary;
+    log.debug(`AI summary '${transactionSummary}' for items ${matchingAmazonTransaction.items}`);
 
     // kind of silly to convert to name, but makes the rest of the code more simple
-    if (chosenCategoryId) {
-      log.debug(`AI chose category ${chosenCategoryId} for items: ${matchingAmazonTransaction.items}`);
-      targetCategoryName = promptCategories.find((cat) => cat.id === chosenCategoryId)?.name ?? null;
+    if (summaryResponse.id) {
+      log.debug(`AI chose category ${summaryResponse.id} for items: ${matchingAmazonTransaction.items}`);
+      targetCategoryName = promptCategories.find((cat) => cat.id === summaryResponse.id)?.name ?? null;
     } else {
       log.warn("AI could not match transaction", matchingAmazonTransaction);
     }
   }
 
   // null is actually printed, which is why we need ""
-  const newNote = `#${matchingAmazonTransaction.orderid} ${
+  let newNote = `#${matchingAmazonTransaction.orderid} ${
     uncategorizedLunchMoneyAmazonTransaction.notes || ""
-  }`.trim();
+    }`.trim();
+  
+  // add AI generated summary
+  if (transactionSummary) {
+    newNote += `. ${transactionSummary}`;
+  }
+
+  // truncate to max characters
+  newNote = newNote.substring(0, LUNCHMONEY_NOTE_LIMIT);
+  
   const shouldUpdateNote = !(
     uncategorizedLunchMoneyAmazonTransaction.notes || ""
   ).includes(matchingAmazonTransaction.orderid);

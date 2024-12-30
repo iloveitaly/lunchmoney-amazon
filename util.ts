@@ -1,5 +1,7 @@
 import papaparse from "papaparse";
 import fs from "fs";
+import LunchMoney from "lunch-money";
+import * as dateFns from "date-fns";
 
 /*
 < {
@@ -68,4 +70,30 @@ export const writeCSV = (csvRows: any, filePath: string) => {
 
 export function prettyJSON(json: Object, returnString = false): string {
   return JSON.stringify(json, null, 2);
+}
+
+export async function getAllTransactionsPaging(lunchMoney: LunchMoney, startDate: Date, endDate: Date) {
+  const transactions = [];
+
+  let offset = 0;
+  const limit = 1000;
+  
+  while (true) {
+    const response = (await lunchMoney.get('/v1/transactions', {
+      start_date: dateFns.format(startDate, "yyyy-MM-dd"),
+      end_date: dateFns.format(endDate, "yyyy-MM-dd"),
+      limit,
+      offset
+    }));
+    
+    transactions.push(...response.transactions);
+    
+    if (!response.has_more) {
+      break;
+    }
+    
+    offset += limit;
+  }
+
+  return transactions;
 }

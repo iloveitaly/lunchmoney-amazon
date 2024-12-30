@@ -1,8 +1,5 @@
 import repl from "repl";
-import dotenv from "dotenv";
 import { LunchMoney } from "lunch-money";
-
-dotenv.config();
 
 // TODO can we add helper methds for debugging in the future?
 // https://stackoverflow.com/questions/31173473/list-all-global-variables-in-node-js
