@@ -10,9 +10,9 @@ based on the categories available in your LunchMoney account.
 
 ## Features
 
-* Marked as gift if recipient is not the owner name passed to the CLI
-* GPT-4o-mini is used for transaction categorization. Be sure to add a clear description to categories!
-* Summary of items purchased and order number is added to the transaction notes.
+- Marked as gift if recipient is not the owner name passed to the CLI
+- GPT-4o-mini is used for transaction categorization. Be sure to add a clear description to categories!
+- Summary of items purchased and order number is added to the transaction notes.
 
 ## Setup
 
@@ -62,7 +62,7 @@ let lunchMoneyKey = process.env.LUNCH_MONEY_API_KEY;
 let client = new LunchMoney({ token: lunchMoneyKey });
 
 import { readCSV } from "./util.js";
-let allAmazonTransactions = await readCSV("path")
+let allAmazonTransactions = await readCSV("path");
 ```
 
 You can log loudly as well:

@@ -1,5 +1,9 @@
 import { LunchMoney, Transaction as LunchMoneyTransaction } from "lunch-money";
-import { readCSV, AmazonTransaction, getAllTransactionsPaging } from "./util.js";
+import {
+  readCSV,
+  AmazonTransaction,
+  getAllTransactionsPaging,
+} from "./util.js";
 import * as dateFns from "date-fns";
 import fs from "fs";
 import { Command } from "commander";
@@ -8,14 +12,13 @@ import prefix from "loglevel-plugin-prefix";
 
 import { OpenAI } from "openai";
 
-
 // add expected log level prefixes
 prefix.reg(log);
 log.enableAll();
 prefix.apply(log);
 
 // from docs: https://lunchmoney.dev/#update-transaction
-const LUNCHMONEY_NOTE_LIMIT = 350
+const LUNCHMONEY_NOTE_LIMIT = 350;
 
 if (process.env.LOG_LEVEL) {
   const logLevelFromEnv = process.env.LOG_LEVEL.toLowerCase() as LogLevelNames;
@@ -62,21 +65,20 @@ const lunchMoney = new LunchMoney({ token: lunchMoneyKey });
 const lunchMoneyCategories = await lunchMoney.getCategories();
 
 // regardless of if the user chooses to use chatgpt, let's generate a prompt for the user
-const promptCategories =   lunchMoneyCategories
-    .filter(
-      (category) =>
-        !category.is_income &&
-        !category.archived &&
-        !category.exclude_from_budget &&
-        !category.is_group,
-    )
-    // limit the data passed to chatgpt
+const promptCategories = lunchMoneyCategories.filter(
+  (category) =>
+    !category.is_income &&
+    !category.archived &&
+    !category.exclude_from_budget &&
+    !category.is_group,
+);
+// limit the data passed to chatgpt
 const promptCategoriesJson = JSON.stringify(
   promptCategories.map(({ id, name, description }) => ({
-      id,
-      name,
-      description,
-    })),
+    id,
+    name,
+    description,
+  })),
 );
 
 function generateSummaryPrompt(transactionItems: string) {
@@ -107,7 +109,7 @@ Here is an example response:
 \`\`\`
 
 Include only raw JSON, no codefences.
-`  
+`;
 }
 
 interface AITransactionSummary {
@@ -115,24 +117,26 @@ interface AITransactionSummary {
   summary: string;
 }
 
-async function aiTransactionSummary(transactionItems: string): Promise<AITransactionSummary> {
+async function aiTransactionSummary(
+  transactionItems: string,
+): Promise<AITransactionSummary> {
   const prompt = generateSummaryPrompt(transactionItems);
   const openai = new OpenAI();
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: "user", content: prompt }],
     max_tokens: 50,
     temperature: 0,
   });
 
   const chosenText = response.choices[0].message?.content;
-  
-  if(!chosenText) {
+
+  if (!chosenText) {
     return { id: null, summary: "" };
   }
 
-  const parsedResponse = JSON.parse(chosenText)
+  const parsedResponse = JSON.parse(chosenText);
 
   const chosenId = parseInt(parsedResponse.id, 10);
 
@@ -271,7 +275,7 @@ function findMatchingLunchMoneyTransaction(
   const possibleMatches = remainingAmazonTransactions.filter(
     (amazonTransaction) =>
       parseFloat(amazonTransaction.total).toFixed(2) ===
-        normalizedPaymentAmount
+      normalizedPaymentAmount,
   );
 
   if (possibleMatches.length === 0) {
@@ -343,21 +347,29 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
   }
 
   let targetCategoryName: string | null = null;
-  let transactionSummary = null
+  let transactionSummary = null;
 
   if (orderIsGift(matchingAmazonTransaction)) {
     log.debug("identified gift", matchingAmazonTransaction);
     // TODO this should not be hardcoded
     targetCategoryName = "Gifts";
-  } else  {
-    const summaryResponse = await aiTransactionSummary(matchingAmazonTransaction.items);
+  } else {
+    const summaryResponse = await aiTransactionSummary(
+      matchingAmazonTransaction.items,
+    );
     transactionSummary = summaryResponse.summary;
-    log.debug(`AI summary '${transactionSummary}' for items ${matchingAmazonTransaction.items}`);
+    log.debug(
+      `AI summary '${transactionSummary}' for items ${matchingAmazonTransaction.items}`,
+    );
 
     // kind of silly to convert to name, but makes the rest of the code more simple
     if (summaryResponse.id) {
-      log.debug(`AI chose category ${summaryResponse.id} for items: ${matchingAmazonTransaction.items}`);
-      targetCategoryName = promptCategories.find((cat) => cat.id === summaryResponse.id)?.name ?? null;
+      log.debug(
+        `AI chose category ${summaryResponse.id} for items: ${matchingAmazonTransaction.items}`,
+      );
+      targetCategoryName =
+        promptCategories.find((cat) => cat.id === summaryResponse.id)?.name ??
+        null;
     } else {
       log.warn("AI could not match transaction", matchingAmazonTransaction);
     }
@@ -366,8 +378,8 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
   // null is actually printed, which is why we need ""
   let newNote = `#${matchingAmazonTransaction.orderid} ${
     uncategorizedLunchMoneyAmazonTransaction.notes || ""
-    }`.trim();
-  
+  }`.trim();
+
   // add AI generated summary
   if (transactionSummary) {
     newNote += `. ${transactionSummary}`;
@@ -375,7 +387,7 @@ for (const uncategorizedLunchMoneyAmazonTransaction of lunchMoneyAmazonTransacti
 
   // truncate to max characters
   newNote = newNote.substring(0, LUNCHMONEY_NOTE_LIMIT);
-  
+
   const shouldUpdateNote = !(
     uncategorizedLunchMoneyAmazonTransaction.notes || ""
   ).includes(matchingAmazonTransaction.orderid);
