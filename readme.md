@@ -50,6 +50,12 @@ You'll probably want to dry run it first, to setup missing categories.
 bun run.ts -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco" -d
 ```
 
+### OpenAI Costs
+
+The most amazing thing about this approach is it costs effectively nothing.
+
+In order to test the system, I ran this multiple times in dry-run mode against my full-year amazon transactions (~200). It consumed about 200k tokens, which is below the minimum billing threshold for OpenAI, so running this was free. Amazing.
+
 ## Development
 
 Update `run.ts` and run it.
