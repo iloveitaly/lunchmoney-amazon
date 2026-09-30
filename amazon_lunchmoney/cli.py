@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 from openai import OpenAI
 
-from .amazon import date_range, is_matchable, read_csv
+from .amazon import date_range, is_matchable
 from .categorize import (
     ai_transaction_summary,
     build_note,
@@ -18,6 +18,11 @@ from .categorize import (
     order_is_gift,
     prompt_categories,
     should_update_note,
+)
+from .formats import (
+    FORMAT_AMAZON_SHOPPING_MCP,
+    FORMAT_AZAD,
+    read_orders,
 )
 from .lunchmoney import LunchMoneyClient
 from .matcher import find_matching_transaction
@@ -37,10 +42,18 @@ GIFT_CATEGORY_NAME = "Gifts"
 @click.option(
     "-f",
     "--file",
-    "csv_file",
+    "history_file",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="amazon history file",
+)
+@click.option(
+    "--format",
+    "file_format",
+    type=click.Choice([FORMAT_AZAD, FORMAT_AMAZON_SHOPPING_MCP]),
+    default=FORMAT_AZAD,
+    show_default=True,
+    help="order history file format",
 )
 @click.option(
     "-k",
@@ -58,7 +71,8 @@ GIFT_CATEGORY_NAME = "Gifts"
 @click.option("-c", "--default-category", required=True, help="default category")
 def cli(
     verbose: bool,
-    csv_file: Path,
+    history_file: Path,
+    file_format: str,
     lunch_money_key: str | None,
     dry_run: bool,
     owner_names: tuple[str, ...],
@@ -68,8 +82,9 @@ def cli(
         logging.getLogger().setLevel(logging.DEBUG)
 
     log.debug(
-        "options: file=%s dry_run=%s owners=%s default_category=%s",
-        csv_file,
+        "options: file=%s format=%s dry_run=%s owners=%s default_category=%s",
+        history_file,
+        file_format,
         dry_run,
         owner_names,
         default_category,
@@ -89,7 +104,7 @@ def cli(
 
     log.debug("Category match found %s", default_category_id)
 
-    all_amazon_transactions = read_csv(csv_file)
+    all_amazon_transactions = read_orders(history_file, file_format)
     amazon_transactions = [t for t in all_amazon_transactions if is_matchable(t)]
 
     if not amazon_transactions:

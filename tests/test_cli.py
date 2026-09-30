@@ -1,6 +1,7 @@
 """End-to-end CLI tests with mocked Lunch Money API and OpenAI."""
 
 import datetime
+import json
 from pathlib import Path
 
 import pytest
@@ -154,3 +155,49 @@ def test_gift_order_uses_gifts_category(tmp_path: Path, fakes: _FakeAI) -> None:
     assert fakes.calls == []
     assert _FakeLMClient.last is not None
     assert _FakeLMClient.last.updates == [(100, 7, "#D01-1111111-1111111")]
+
+
+def test_mcp_format_reads_jsonl(tmp_path: Path, fakes: _FakeAI) -> None:
+    path = tmp_path / "orders.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "order_number": "112-7108886-6473855",
+                "order_date": "December 1, 2024",
+                "order_total": "$25.99",
+                "items": ["Book"],
+                "status": "Delivered",
+                "returnable": False,
+            }
+        )
+        + "\n"
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "-f",
+            str(path),
+            "--format",
+            "amazon-shopping-mcp",
+            "-c",
+            "Shopping",
+            "-k",
+            "key",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert _FakeLMClient.last is not None
+    assert _FakeLMClient.last.updates == [
+        (100, 42, "#112-7108886-6473855. Reading material")
+    ]
+
+
+def test_invalid_format_is_rejected(csv_file: Path, fakes: _FakeAI) -> None:
+    result = CliRunner().invoke(
+        cli, ["-f", str(csv_file), "--format", "bogus", "-c", "Shopping", "-k", "key"]
+    )
+
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output

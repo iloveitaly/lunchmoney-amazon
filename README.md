@@ -42,15 +42,22 @@ just setup
 Usage: amazon-lunchmoney [OPTIONS]
 
 Options:
-  -v, --verbose                output verbose logs
-  -f, --file FILE              amazon history file  [required]
-  -k, --lunch-money-key TEXT   lunch money api key
-  -d, --dry-run                dry run mode
-  -n, --owner-names TEXT       name of the owner(s) of the account, used to
-                               determine if a order is a gift
-  -c, --default-category TEXT  default category  [required]
-  -h, --help                   Show this message and exit.
+  -v, --verbose                   output verbose logs
+  -f, --file FILE                 amazon history file  [required]
+  --format [azad|amazon-shopping-mcp]
+                                  order history file format  [default: azad]
+  -k, --lunch-money-key TEXT      lunch money api key
+  -d, --dry-run                   dry run mode
+  -n, --owner-names TEXT          name of the owner(s) of the account, used to
+                                  determine if a order is a gift
+  -c, --default-category TEXT     default category  [required]
+  -h, --help                      Show this message and exit.
 ```
+
+Two order history formats are supported via `--format`:
+
+- `azad` (default): CSV exported by the [azad extension](https://github.com/philipmulcahy/azad) in order view.
+- `amazon-shopping-mcp`: JSONL of `OrderSummary` objects exported by [amazon-shopping-mcp](https://github.com/iloveitaly/amazon-shopping-mcp). This format carries no recipient data, so gift detection is inactive for these orders.
 
 Here's an example command:
 
@@ -84,12 +91,12 @@ Or open up a repl and play around:
 ```python
 import os
 
-from amazon_lunchmoney.amazon import read_csv
+from amazon_lunchmoney.formats import read_orders
 from amazon_lunchmoney.lunchmoney import LunchMoneyClient
 
 client = LunchMoneyClient(token=os.environ["LUNCH_MONEY_API_KEY"])
 
-all_amazon_transactions = read_csv("path/to/amazon_order_history.csv")
+all_amazon_transactions = read_orders("path/to/amazon_order_history.csv", "azad")
 ```
 
 You can log loudly as well:

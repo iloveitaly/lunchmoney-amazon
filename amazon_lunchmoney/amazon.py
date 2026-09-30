@@ -1,16 +1,13 @@
-"""Parsing and filtering of Amazon order history CSV exports.
+"""Shared Amazon order model and matching filters.
 
-The CSV is produced by the azad scraper
-(https://github.com/philipmulcahy/azad) in "order" view, so each row is an
-order (not an item) and can be matched against a Lunch Money charge.
+Format-specific parsing lives in `amazon_lunchmoney.formats`; every adapter
+produces these transactions so matching works the same regardless of source.
 """
 
 from __future__ import annotations
 
-import csv
 import datetime
 from dataclasses import dataclass
-from pathlib import Path
 
 
 @dataclass
@@ -34,23 +31,12 @@ class AmazonTransaction:
         return cls(**{k: v or "" for k, v in row.items() if k in known})
 
 
-def _normalize_header(header: str) -> str:
-    # 'Order ID' => 'orderid'
-    return "".join(header.split()).lower()
-
-
-def read_csv(file_path: str | Path) -> list[AmazonTransaction]:
-    """Read an azad order-history CSV file into a list of transactions."""
-    with open(file_path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames is None:
-            return []
-        reader.fieldnames = [_normalize_header(h) for h in reader.fieldnames]
-        return [
-            AmazonTransaction.from_row({k: (v or "") for k, v in row.items()})
-            for row in reader
-            if any((v or "").strip() for v in row.values())
-        ]
+def _has_parseable_total(transaction: AmazonTransaction) -> bool:
+    try:
+        float(transaction.total)
+        return True
+    except ValueError:
+        return False
 
 
 def is_matchable(transaction: AmazonTransaction) -> bool:
@@ -60,11 +46,13 @@ def is_matchable(transaction: AmazonTransaction) -> bool:
       - $0 orders (paid by gift card), which have no matching entry in LM
       - orders without a usable date
       - orders with a "pending" item list (could not be scraped)
+      - orders without a parseable total (e.g. cancelled MCP orders)
     """
     return (
         transaction.total != "0"
         and transaction.date not in ("pending", "?", "")
         and transaction.items not in ("pending", "")
+        and _has_parseable_total(transaction)
     )
 
 
