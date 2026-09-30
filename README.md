@@ -10,13 +10,13 @@
 The trick is, Amazon doesn't have an order export. [There's a sneaky extension](https://github.com/philipmulcahy/azad) that allows you to export your orders to a CSV file. This tool ingests that CSV and categorizes your Amazon transactions in Lunch Money.
 
 However, in order to match orders to transactions in Lunch Money, you have to match orders not items, which eliminates a clear 1:1
-mapping between transaction and category. To solve this, we pipe the list of items to OpenAI and ask it to categorize the items
+mapping between transaction and category. To solve this, we pipe the list of items to an LLM via Pydantic AI and ask it to categorize the items
 based on the categories available in your LunchMoney account.
 
 ## Features
 
 - Marked as gift if recipient is not the owner name passed to the CLI
-- GPT-4o-mini is used for transaction categorization. Be sure to add a clear description to categories!
+- Support for multiple AI providers via [Pydantic AI](https://ai.pydantic.dev/), with Google Gemini as the default (`google:gemini-3.8-flash`)
 - Summary of items purchased and order number is added to the transaction notes.
 
 ## Installation
@@ -24,6 +24,8 @@ based on the categories available in your LunchMoney account.
 ```bash
 uv add amazon-lunchmoney
 ```
+
+> **Note**: OpenAI, Anthropic, and Gemini (Google) are supported by default. To install all providers supported by Pydantic AI, use `pip install "amazon-lunchmoney[all-providers]"`.
 
 Or for local development:
 
@@ -37,6 +39,15 @@ just setup
 1. Use the [amazon order scraper](https://github.com/philipmulcahy/azad) to pull your amazon history.
    1. You want order view, not items, so we can match up charges to orders.![azad example](azad.png)
 2. Get a lunch money API key. Run `cp .env-example .env` and add your API key to `.env`, or input it directly via the command line.
+3. Configure your AI provider:
+
+```shell
+export AMAZON_LUNCHMONEY_AI_KEY=<YOUR API KEY>
+export AMAZON_LUNCHMONEY_MODEL=google:gemini-3.8-flash
+```
+
+Or configure provider-specific keys directly (e.g. `GOOGLE_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`).
+
 
 ```shell
 Usage: amazon-lunchmoney [OPTIONS]

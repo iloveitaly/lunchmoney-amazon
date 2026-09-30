@@ -78,7 +78,7 @@ def csv_file(tmp_path: Path) -> Path:
 @pytest.fixture
 def fakes(monkeypatch) -> _FakeAI:
     monkeypatch.setattr("amazon_lunchmoney.cli.LunchMoneyClient", _FakeLMClient)
-    monkeypatch.setattr("amazon_lunchmoney.cli.OpenAI", lambda: object())
+    monkeypatch.setattr("amazon_lunchmoney.cli.create_agent", lambda: object())
     fake_ai = _FakeAI()
     monkeypatch.setattr("amazon_lunchmoney.cli.ai_transaction_summary", fake_ai)
     return fake_ai
@@ -201,3 +201,17 @@ def test_invalid_format_is_rejected(csv_file: Path, fakes: _FakeAI) -> None:
 
     assert result.exit_code == 2
     assert "Invalid value" in result.output
+
+
+def test_version_option() -> None:
+    result = CliRunner().invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert "amazon-lunchmoney, version" in result.output
+    assert "model:" in result.output
+
+
+def test_version_option_configured_model(monkeypatch) -> None:
+    monkeypatch.setenv("AMAZON_LUNCHMONEY_MODEL", "openai:gpt-4o")
+    result = CliRunner().invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert "model: openai:gpt-4o" in result.output

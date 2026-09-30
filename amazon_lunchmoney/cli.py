@@ -8,17 +8,20 @@ import os
 from pathlib import Path
 
 import click
-from openai import OpenAI
+from pydantic_ai import Agent
 
 from .amazon import date_range, is_matchable
 from .categorize import (
+    TransactionSummary,
     ai_transaction_summary,
     build_note,
     category_name_to_id,
+    create_agent,
     order_is_gift,
     prompt_categories,
     should_update_note,
 )
+from .config import get_model_name
 from .formats import (
     FORMAT_AMAZON_SHOPPING_MCP,
     FORMAT_AZAD,
@@ -26,6 +29,7 @@ from .formats import (
 )
 from .lunchmoney import LunchMoneyClient
 from .matcher import find_matching_transaction
+from .version import __version__
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +41,27 @@ DAY_ADJUSTMENT = 7
 GIFT_CATEGORY_NAME = "Gifts"
 
 
-@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+def echo_cli_version(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    if not value or ctx.resilient_parsing:
+        return
+
+    prog_name = ctx.find_root().info_name or "amazon-lunchmoney"
+    click.echo(f"{prog_name}, version {__version__}")
+    click.echo(f"model: {get_model_name()}")
+    ctx.exit()
+
+
+@click.command(
+    "amazon-lunchmoney", context_settings={"help_option_names": ["-h", "--help"]}
+)
+@click.option(
+    "--version",
+    is_flag=True,
+    expose_value=False,
+    is_eager=True,
+    callback=echo_cli_version,
+    help="Show the version and configured model and exit.",
+)
 @click.option("-v", "--verbose", is_flag=True, help="output verbose logs")
 @click.option(
     "-f",
@@ -148,7 +172,7 @@ def cli(
     )
 
     normalized_owner_names = [name.lower().strip() for name in owner_names]
-    openai_client: OpenAI | None = None
+    ai_agent: Agent[None, TransactionSummary] | None = None
 
     for transaction in uncategorized:
         matching_amazon_transaction = find_matching_transaction(
@@ -177,10 +201,10 @@ def cli(
             log.debug("identified gift %s", matching_amazon_transaction)
             target_category_name = GIFT_CATEGORY_NAME
         else:
-            if openai_client is None:
-                openai_client = OpenAI()
+            if ai_agent is None:
+                ai_agent = create_agent()
             summary_response = ai_transaction_summary(
-                matching_amazon_transaction.items, prompt_cats, openai_client
+                matching_amazon_transaction.items, prompt_cats, ai_agent
             )
             transaction_summary = summary_response.summary
             log.debug(

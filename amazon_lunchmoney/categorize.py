@@ -4,26 +4,42 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from typing import Any
 
-from openai import OpenAI
+import pydantic_ai
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent, ModelSettings
+from pydantic_ai.exceptions import (
+    ModelAPIError,
+    ModelHTTPError,
+    UnexpectedModelBehavior,
+)
+from pydantic_ai.models import Model
+from pydantic_ai.models.google import GoogleModel
 
 from .amazon import AmazonTransaction
+from .config import DEFAULT_MODEL_NAME, get_model_name, update_env_variables
 from .lunchmoney import Category
+
+pydantic_ai.BANNER_ENABLED = False
 
 log = logging.getLogger(__name__)
 
-MODEL = "gpt-4o-mini"
-MAX_TOKENS = 50
+MODEL = DEFAULT_MODEL_NAME
 
 # from docs: https://lunchmoney.dev/#update-transaction
 NOTE_LIMIT = 350
 
 
-@dataclass
-class TransactionSummary:
-    id: int | None
-    summary: str
+class TransactionSummary(BaseModel):
+    id: int | None = Field(
+        default=None,
+        description="The ID of the category that best matches the list of items, or null if no category matches.",
+    )
+    summary: str = Field(
+        default="",
+        description="A concise summary of the items purchased in a handful of words.",
+    )
 
 
 def prompt_categories(categories: list[Category]) -> list[Category]:
@@ -76,39 +92,85 @@ Include only raw JSON, no codefences.
 """
 
 
+def create_agent(
+    model: str | Model | None = None,
+) -> Agent[None, TransactionSummary]:
+    """Create a Pydantic AI agent configured for transaction categorization."""
+    model_name_or_obj = model or get_model_name()
+    return Agent(
+        model_name_or_obj,
+        output_type=TransactionSummary,
+        system_prompt=(
+            "You are a personal finance assistant. Categorize Amazon purchases into one of the provided categories "
+            "and provide a short concise summary (a handful of words) of the items purchased. "
+            "Pick the category that best matches the list of items. If no category matches, set id to null."
+        ),
+    )
+
+
 def ai_transaction_summary(
     transaction_items: str,
     categories: list[Category],
-    client: OpenAI | None = None,
+    agent: Any = None,
 ) -> TransactionSummary:
     """Ask the AI to pick a category id and summarize the purchased items."""
+    update_env_variables()
     prompt = generate_summary_prompt(transaction_items, categories_json(categories))
-    client = client or OpenAI()
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=MAX_TOKENS,
-        temperature=0,
-    )
+    if isinstance(agent, Model):
+        agent_instance = create_agent(model=agent)
+    elif agent is None:
+        agent_instance = create_agent()
+    else:
+        agent_instance = agent
 
-    content = response.choices[0].message.content
-
-    if not content:
-        return TransactionSummary(id=None, summary="")
+    model_settings: ModelSettings | None = None
+    if isinstance(agent_instance.model, GoogleModel) or (
+        isinstance(agent_instance.model, str)
+        and (
+            agent_instance.model.startswith("google:")
+            or agent_instance.model.startswith("gemini:")
+        )
+    ):
+        # Gemini 3.7+ rejects thinking_level=minimal; low is the cheapest
+        # level still accepted across current Gemini models.
+        # https://ai.pydantic.dev/models/google/#configure-thinking
+        model_settings = ModelSettings(thinking="low")
 
     try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError:
-        log.warning("AI returned invalid JSON: %s", content)
+        result = agent_instance.run_sync(prompt, model_settings=model_settings)
+        summary_output = result.output
+    except (ModelHTTPError, ModelAPIError, UnexpectedModelBehavior) as e:
+        log.warning("AI model request failed: %s", e)
         return TransactionSummary(id=None, summary="")
 
-    try:
-        chosen_id = int(parsed["id"])
-    except (TypeError, ValueError, KeyError):
-        chosen_id = None
+    if summary_output is None:
+        return TransactionSummary(id=None, summary="")
 
-    summary = str(parsed.get("summary") or "")
+    if isinstance(summary_output, str):
+        try:
+            parsed = json.loads(summary_output)
+            chosen_id = int(parsed["id"]) if parsed.get("id") is not None else None
+            summary = str(parsed.get("summary") or "")
+        except (json.JSONDecodeError, ValueError, KeyError):
+            log.warning("AI returned invalid JSON: %s", summary_output)
+            return TransactionSummary(id=None, summary="")
+    elif isinstance(summary_output, TransactionSummary):
+        chosen_id = summary_output.id
+        summary = summary_output.summary or ""
+    elif isinstance(summary_output, dict):
+        try:
+            chosen_id = (
+                int(summary_output["id"])
+                if summary_output.get("id") is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            chosen_id = None
+        summary = str(summary_output.get("summary") or "")
+    else:
+        chosen_id = getattr(summary_output, "id", None)
+        summary = getattr(summary_output, "summary", "") or ""
 
     if chosen_id is None or all(c.id != chosen_id for c in categories):
         return TransactionSummary(id=None, summary=summary)

@@ -15,11 +15,16 @@ classifiers = [
 dependencies = [
     "click>=8.1.0",
     "httpx>=0.28.0",
-    "openai>=1.0.0",
+    "pydantic-ai-slim[anthropic,google,openai]>=2.46.0",
 ]
 authors = [{ name = "Michael Bianco", email = "mike@mikebian.co" }]
 urls = { "Repository" = "https://github.com/iloveitaly/amazon-lunchmoney" }
 
+
+[project.optional-dependencies]
+all-providers = [
+    "pydantic-ai>=2.46.0",
+]
 
 # additional packaging information: https://packaging.python.org/en/latest/specifications/core-metadata/#license
 [project.scripts]

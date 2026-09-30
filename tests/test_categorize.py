@@ -28,39 +28,10 @@ def _category(id: int, name: str, **overrides) -> Category:
     return Category(id=id, name=name, **{**defaults, **overrides})
 
 
-class _FakeMessage:
-    def __init__(self, content: str | None) -> None:
-        self.content = content
+from unittest.mock import MagicMock
 
-
-class _FakeChoice:
-    def __init__(self, content: str | None) -> None:
-        self.message = _FakeMessage(content)
-
-
-class _FakeCompletion:
-    def __init__(self, content: str | None) -> None:
-        self.choices = [_FakeChoice(content)]
-
-
-class _FakeCompletions:
-    def __init__(self, content: str | None) -> None:
-        self._content = content
-        self.calls: list[dict] = []
-
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        return _FakeCompletion(self._content)
-
-
-class _FakeChat:
-    def __init__(self, content: str | None) -> None:
-        self.completions = _FakeCompletions(content)
-
-
-class _FakeOpenAI:
-    def __init__(self, content: str | None) -> None:
-        self.chat = _FakeChat(content)
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.models.test import TestModel
 
 
 def test_prompt_categories_filters() -> None:
@@ -138,21 +109,19 @@ def test_should_update_note() -> None:
 
 def test_ai_summary_accepts_known_category() -> None:
     categories = [_category(42, "Books")]
-    client = _FakeOpenAI('{"id": 42, "summary": "Reading material"}')
+    model = TestModel(custom_output_args={"id": 42, "summary": "Reading material"})
 
-    result = ai_transaction_summary("Book", categories, client)  # type: ignore[arg-type]
+    result = ai_transaction_summary("Book", categories, model)
 
     assert result.id == 42
     assert result.summary == "Reading material"
-    assert client.chat.completions.calls[0]["model"] == "gpt-4o-mini"
-    assert client.chat.completions.calls[0]["temperature"] == 0
 
 
 def test_ai_summary_rejects_unknown_category_but_keeps_summary() -> None:
     categories = [_category(42, "Books")]
-    client = _FakeOpenAI('{"id": 999, "summary": "Reading material"}')
+    model = TestModel(custom_output_args={"id": 999, "summary": "Reading material"})
 
-    result = ai_transaction_summary("Book", categories, client)  # type: ignore[arg-type]
+    result = ai_transaction_summary("Book", categories, model)
 
     assert result.id is None
     assert result.summary == "Reading material"
@@ -161,11 +130,24 @@ def test_ai_summary_rejects_unknown_category_but_keeps_summary() -> None:
 def test_ai_summary_handles_empty_and_invalid_responses() -> None:
     categories = [_category(42, "Books")]
 
-    assert ai_transaction_summary("Book", categories, _FakeOpenAI(None)).summary == ""  # type: ignore[arg-type]
+    mock_agent = MagicMock()
+    mock_agent.model = MagicMock()
 
-    result = ai_transaction_summary("Book", categories, _FakeOpenAI("not json"))  # type: ignore[arg-type]
+    mock_agent.run_sync.return_value = MagicMock(output=None)
+    assert ai_transaction_summary("Book", categories, mock_agent).summary == ""
+
+    mock_agent.run_sync.return_value = MagicMock(output="not json")
+    result = ai_transaction_summary("Book", categories, mock_agent)
     assert result.id is None
     assert result.summary == ""
 
-    result = ai_transaction_summary("Book", categories, _FakeOpenAI('{"id": "abc"}'))  # type: ignore[arg-type]
+    mock_agent.run_sync.return_value = MagicMock(output='{"id": "abc"}')
+    result = ai_transaction_summary("Book", categories, mock_agent)
     assert result.id is None
+
+    mock_agent.run_sync.side_effect = ModelHTTPError(
+        500, model_name="test-model", body="error"
+    )
+    result = ai_transaction_summary("Book", categories, mock_agent)
+    assert result.id is None
+    assert result.summary == ""
