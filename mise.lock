@@ -47,3 +47,23 @@ url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/bun-windows-
 [tools.bun."platforms.windows-x64-baseline"]
 checksum = "sha256:9d0e0f923e9626f3bc6044fc32e0d3ab29039aea753f5678ef8801cf26f75288"
 url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/bun-windows-x64-baseline.zip"
+
+[[tools.direnv]]
+version = "2.37.1"
+backend = "asdf:direnv"
+
+[[tools."github:casey/just"]]
+version = "1.58.0"
+backend = "github:casey/just"
+
+[[tools.gitleaks]]
+version = "8.30.1"
+backend = "aqua:gitleaks/gitleaks"
+
+[[tools.python]]
+version = "3.14.7"
+backend = "core:python"
+
+[[tools.uv]]
+version = "0.12.19"
+backend = "asdf:uv"

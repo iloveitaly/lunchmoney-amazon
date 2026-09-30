@@ -1,2 +1,13 @@
 [tools]
-bun = "latest"
+python = "3.14"
+
+uv = "latest"
+direnv = "latest"
+gitleaks = "latest"
+"github:casey/just" = "latest"
+
+[bootstrap.packages]
+"apt:zsh" = { os = "linux" }
+
+[settings]
+python.uv_venv_auto = "create|source"

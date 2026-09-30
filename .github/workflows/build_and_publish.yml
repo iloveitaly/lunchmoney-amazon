@@ -1,0 +1,102 @@
+name: Build and Publish to PyPI
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request: {}
+
+env:
+  # avoid build failures due to flaky pypi
+  PIP_DEFAULT_TIMEOUT: 60
+  PIP_RETRIES: 5
+
+  # required otherwise github api calls are rate limited
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Check out branch instead of detached HEAD so bare git push works
+          ref: ${{ github.ref_name }}
+      - uses: jdx/mise-action@v4
+        with:
+          bootstrap: true
+          bootstrap_args: --update --yes
+      - uses: iloveitaly/github-action-direnv-load-and-mask@master
+      - run: uv build
+      - run: uv publish
+
+      # Keep uv.lock in sync with pyproject.toml after release version bump without requiring extra config files
+      - name: Sync uv.lock
+        run: |
+          uv lock
+          git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" commit -am "chore(deps): update uv.lock [skip ci]" && git push || true
+
+
+
+  release-please:
+    runs-on: ubuntu-latest
+    needs: [build]
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    permissions:
+      contents: write
+      issues: write
+      # NOTE this permission requires configuration to be set on the repo, check `just github_repo_permissions_create`
+      pull-requests: write
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          release-type: python
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # full history so `gitleaks git` in `just lint` can scan every commit
+          fetch-depth: 0
+      - uses: jdx/mise-action@v4
+        env:
+          MISE_ENV: ci
+        with:
+          bootstrap: true
+          bootstrap_args: --update --yes
+      - uses: iloveitaly/github-action-direnv-load-and-mask@master
+      - run: uv sync
+      - run: just lint
+
+  build:
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+        with:
+          bootstrap: true
+          bootstrap_args: --update --yes
+      - run: direnv allow . && direnv export gha >> "$GITHUB_ENV"
+      - run: uv sync
+
+      # `uv run` prefix is required since the venv is not activated
+
+
+      - name: Make sure the CLI runs properly
+        run: uv run ${{ github.event.repository.name }} --help
+
+      - run: just test

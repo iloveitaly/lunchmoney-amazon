@@ -1,0 +1,26 @@
+extend-exclude = [
+    "playground",
+    "playground.py",
+    "tests/conftest.py",
+    ".copier",
+    "tmp",
+]
+force-exclude = true
+
+[lint]
+# Add rules: isort (I), flake8-implicit-str-concat (ISC), pyupgrade (UP), flake8-comprehensions (C4), flake8-bugbear (B)
+extend-select = ["I", "ISC", "UP", "C4", "B"]
+
+[lint.isort]
+section-order = [
+    # https://docs.astral.sh/ruff/settings/#lint_isort_section-order
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "tests",
+    "local-folder",
+]
+
+[lint.isort.sections]
+tests = ["tests"]

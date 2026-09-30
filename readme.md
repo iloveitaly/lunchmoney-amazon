@@ -1,3 +1,8 @@
+[![Release Notes](https://img.shields.io/github/release/iloveitaly/amazon-lunchmoney)](https://github.com/iloveitaly/amazon-lunchmoney/releases)
+[![Downloads](https://static.pepy.tech/badge/amazon-lunchmoney/month)](https://pepy.tech/project/amazon-lunchmoney)
+![GitHub CI Status](https://github.com/iloveitaly/amazon-lunchmoney/actions/workflows/build_and_publish.yml/badge.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # Enhance and Categorize Amazon Transactions in LunchMoney
 
 [LunchMoney](https://mikebian.co/lunchmoney) is a indie-developed personal finance application. I spend a lot on Amazon, and always thought it would be neat to break open the massive black bucket of money that's funneled into Amazon to understand what categories of spending it represents.
@@ -14,9 +19,18 @@ based on the categories available in your LunchMoney account.
 - GPT-4o-mini is used for transaction categorization. Be sure to add a clear description to categories!
 - Summary of items purchased and order number is added to the transaction notes.
 
-## Setup
+## Installation
 
-`mise install` (if you don't have bun) and `bun install`.
+```bash
+uv add amazon-lunchmoney
+```
+
+Or for local development:
+
+```bash
+mise install
+just setup
+```
 
 ## Usage
 
@@ -25,29 +39,29 @@ based on the categories available in your LunchMoney account.
 2. Get a lunch money API key. Run `cp .env-example .env` and add your API key to `.env`, or input it directly via the command line.
 
 ```shell
-Usage: amazon-lunchmoney [options]
+Usage: amazon-lunchmoney [OPTIONS]
 
 Options:
-  -v, --verbose                      output verbose logs
-  -f, --file <path>                  amazon history file
-  -k --lunch-money-key <key>         lunch money api key
-  -m --mapping-file <path>           category mapping file
-  -d, --dry-run                      dry run mode (default: false)
-  -n, --owner-name <name>            the name of the owner of the account, used to determine if a order is a gift
-  -c, --default-category <category>  default category
-  -h, --help                         display help for command
+  -v, --verbose                output verbose logs
+  -f, --file FILE              amazon history file  [required]
+  -k, --lunch-money-key TEXT   lunch money api key
+  -d, --dry-run                dry run mode
+  -n, --owner-names TEXT       name of the owner(s) of the account, used to
+                               determine if a order is a gift
+  -c, --default-category TEXT  default category  [required]
+  -h, --help                   Show this message and exit.
 ```
 
 Here's an example command:
 
 ```shell
-bun run.ts -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco"
+amazon-lunchmoney -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco"
 ```
 
 You'll probably want to dry run it first, to setup missing categories.
 
 ```shell
-bun run.ts -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco" -d
+amazon-lunchmoney -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco" -d
 ```
 
 ### OpenAI Costs
@@ -58,27 +72,37 @@ In order to test the system, I ran this multiple times in dry-run mode against m
 
 ## Development
 
-Update `run.ts` and run it.
+Update the package and run the tests:
+
+```shell
+just test
+just lint
+```
 
 Or open up a repl and play around:
 
-```javascript
-import { LunchMoney } from "lunch-money";
-let lunchMoneyKey = process.env.LUNCH_MONEY_API_KEY;
-let client = new LunchMoney({ token: lunchMoneyKey });
+```python
+import os
 
-import { readCSV } from "./util.js";
-let allAmazonTransactions = await readCSV("path");
+from amazon_lunchmoney.amazon import read_csv
+from amazon_lunchmoney.lunchmoney import LunchMoneyClient
+
+client = LunchMoneyClient(token=os.environ["LUNCH_MONEY_API_KEY"])
+
+all_amazon_transactions = read_csv("path/to/amazon_order_history.csv")
 ```
 
 You can log loudly as well:
 
 ```shell
-LOG_LEVEL=debug bun run.ts -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco"
+LOG_LEVEL=debug amazon-lunchmoney -f '~/Downloads/amazon_order_history.csv' -c Shopping -n "Michael Bianco"
 ```
 
 ## TODO
 
 - [ ] Indicate which purchases are HSA/FSA eligible and maybe generate receipt? This would need to be added to the scraper
-- [ ] publish on npm
 - [ ] Should match up refunds and categorize them appropriately
+
+---
+
+*This project was created from [iloveitaly/python-package-template](https://github.com/iloveitaly/python-package-template)*

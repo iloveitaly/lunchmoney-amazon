@@ -1,0 +1,2 @@
+# this exact file name is required in this exact location if updates are to work
+{"_commit": "v1.1.0-1-g8b03cd3", "_src_path": "https://github.com/iloveitaly/python-package-template", "project_name": "amazon-lunchmoney", "full_name": "Michael Bianco", "email": "mike@mikebian.co", "github_username": "iloveitaly", "build_workflow": "release_please", "publish_docker_image": false, "add_llm_rules": false, "include_postgres": false, "is_cli_tool": true}

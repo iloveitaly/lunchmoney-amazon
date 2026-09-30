@@ -1,7 +1,36 @@
 {
-  "editor.formatOnSave": true,
-  "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": true
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+    },
+    "editor.tabSize": 4
   },
-  "eslint.validate": ["javascript"]
+  "[toml]": {
+    "editor.formatOnSave": true,
+    "editor.tabSize": 4
+  },
+  "python.analysis.autoFormatStrings": true,
+
+  // for import autosuggest
+  "python.analysis.indexing": true,
+  "python.analysis.autoImportCompletions": true,
+
+  "python.analysis.packageIndexDepths": [
+    {
+      "name": "",
+      "depth": 3,
+      "includeAllSymbols": true
+    }
+  ],
+
+  "cSpell.words": ["openai", "httpx"],
+
+  "files.exclude": {
+    ".ruff_cache": true,
+    ".pytest_cache": true,
+    ".venv": true
+  }
 }

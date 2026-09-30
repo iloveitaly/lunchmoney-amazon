@@ -1,0 +1,59 @@
+[project]
+name = "amazon-lunchmoney"
+version = "0.1.0"
+description = "Enhance and categorize Amazon transactions in Lunch Money using your order history and AI"
+keywords = ["lunchmoney", "amazon", "finance", "cli"]
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "click>=8.1.0",
+    "httpx>=0.28.0",
+    "openai>=1.0.0",
+]
+authors = [{ name = "Michael Bianco", email = "mike@mikebian.co" }]
+urls = { "Repository" = "https://github.com/iloveitaly/amazon-lunchmoney" }
+
+
+# additional packaging information: https://packaging.python.org/en/latest/specifications/core-metadata/#license
+[project.scripts]
+amazon-lunchmoney = "amazon_lunchmoney:main"
+
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# avoids the src/ directory structure
+module-root = ""
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+    "pyright[nodejs]>=1.1.408",
+    "ruff>=0.15.0",
+    "coverage>=7.13.4",
+    "pytest-cov>=7.0.0",
+    "covdefaults>=2.3.0",
+    "beautiful-traceback>=1.0.2",
+]
+
+[tool.pyright]
+exclude = ["examples/", "playground/", "tmp/", ".venv/", "tests/"]
+
+[tool.pytest.ini_options]
+addopts = "--cov --cov-report=term-missing --cov-report=html:tmp/htmlcov"
+
+[tool.coverage.run]
+plugins = ["covdefaults"]
+source = ["amazon_lunchmoney"]
+
+[tool.coverage.report]
+fail_under = 50

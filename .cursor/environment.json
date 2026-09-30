@@ -1,0 +1,4 @@
+{
+  "install": "curl -fsSL https://raw.githubusercontent.com/iloveitaly/agent-containers/master/cursor/install.sh | bash",
+  "start": "curl -fsSL https://raw.githubusercontent.com/iloveitaly/agent-containers/master/cursor/start.sh | bash"
+}
