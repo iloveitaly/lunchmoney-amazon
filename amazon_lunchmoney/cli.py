@@ -93,6 +93,13 @@ def echo_cli_version(ctx: click.Context, param: click.Parameter, value: bool) ->
     help="name of the owner(s) of the account, used to determine if a order is a gift",
 )
 @click.option("-c", "--default-category", required=True, help="default category")
+@click.option(
+    "-l",
+    "--limit",
+    type=click.IntRange(min=1),
+    default=None,
+    help="limit the number of input order transactions to process",
+)
 def cli(
     verbose: bool,
     history_file: Path,
@@ -101,17 +108,19 @@ def cli(
     dry_run: bool,
     owner_names: tuple[str, ...],
     default_category: str,
+    limit: int | None,
 ) -> None:
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
     log.debug(
-        "options: file=%s format=%s dry_run=%s owners=%s default_category=%s",
+        "options: file=%s format=%s dry_run=%s owners=%s default_category=%s limit=%s",
         history_file,
         file_format,
         dry_run,
         owner_names,
         default_category,
+        limit,
     )
 
     if not lunch_money_key:
@@ -129,6 +138,9 @@ def cli(
     log.debug("Category match found %s", default_category_id)
 
     all_amazon_transactions = read_orders(history_file, file_format)
+    if limit is not None:
+        all_amazon_transactions = all_amazon_transactions[:limit]
+
     amazon_transactions = [t for t in all_amazon_transactions if is_matchable(t)]
 
     if not amazon_transactions:

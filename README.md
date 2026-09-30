@@ -53,6 +53,8 @@ Or configure provider-specific keys directly (e.g. `GOOGLE_API_KEY`, `OPENAI_API
 Usage: amazon-lunchmoney [OPTIONS]
 
 Options:
+  --version                       Show the version and configured model and
+                                  exit.
   -v, --verbose                   output verbose logs
   -f, --file FILE                 amazon history file  [required]
   --format [azad|amazon-shopping-mcp]
@@ -62,6 +64,8 @@ Options:
   -n, --owner-names TEXT          name of the owner(s) of the account, used to
                                   determine if a order is a gift
   -c, --default-category TEXT     default category  [required]
+  -l, --limit INTEGER RANGE       limit the number of input order transactions
+                                  to process [x>=1]
   -h, --help                      Show this message and exit.
 ```
 

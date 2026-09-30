@@ -215,3 +215,47 @@ def test_version_option_configured_model(monkeypatch) -> None:
     result = CliRunner().invoke(cli, ["--version"])
     assert result.exit_code == 0
     assert "model: openai:gpt-4o" in result.output
+
+
+def test_limit_option(tmp_path: Path, fakes: _FakeAI, monkeypatch) -> None:
+    two_orders_csv = (
+        CSV.replace("__TO__", "Michael Bianco")
+        + 'D01-2222222-2222222,Pen,Office,Michael Bianco,2024-12-01,45.00,0,0,0,0,0,"2024-12-01: $45.00; "\n'
+    )
+    path = tmp_path / "orders.csv"
+    path.write_text(two_orders_csv)
+
+    txs = [
+        Transaction(
+            id=100,
+            date="2024-12-03",
+            payee="Amazon",
+            amount="25.99",
+            category_id=10,
+        ),
+        Transaction(
+            id=101,
+            date="2024-12-03",
+            payee="Amazon",
+            amount="45.00",
+            category_id=10,
+        ),
+    ]
+    monkeypatch.setattr(_FakeLMClient, "get_all_transactions", lambda self, s, e: txs)
+    result = CliRunner().invoke(
+        cli, ["-f", str(path), "-c", "Shopping", "-k", "key", "--limit", "1"]
+    )
+    assert result.exit_code == 0
+    assert _FakeLMClient.last is not None
+    # Only the first row from the CSV was processed
+    assert len(_FakeLMClient.last.updates) == 1
+    assert _FakeLMClient.last.updates[0][0] == 100
+    assert fakes.calls == ["Book"]
+
+
+def test_invalid_limit_rejected(csv_file: Path, fakes: _FakeAI) -> None:
+    result = CliRunner().invoke(
+        cli, ["-f", str(csv_file), "-c", "Shopping", "-k", "key", "--limit", "0"]
+    )
+    assert result.exit_code == 2
+    assert "is not in the range" in result.output
