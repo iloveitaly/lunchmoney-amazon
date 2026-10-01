@@ -135,3 +135,13 @@ dmypy.json
 
 # i like having temporary files specified locally vs globally
 tmp/
+
+# START AI INSTRUCTION IGNORES
+/.agents/skills/standalone-python-scripts/SKILL.md
+/.agents/skills/write-or-update-readme/SKILL.md
+/.cursor/commands/standalone-python-scripts.md
+/.cursor/commands/write-or-update-readme.md
+/.cursor/rules/general.mdc
+/.cursor/rules/python.mdc
+/AGENTS.md
+# END AI INSTRUCTION IGNORES
