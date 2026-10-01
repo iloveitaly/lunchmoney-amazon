@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
 import pydantic_ai
@@ -19,11 +18,10 @@ from pydantic_ai.models.google import GoogleModel
 
 from .amazon import AmazonTransaction
 from .config import DEFAULT_MODEL_NAME, get_model_name, update_env_variables
+from .log import log
 from .lunchmoney import Category
 
 pydantic_ai.BANNER_ENABLED = False
-
-log = logging.getLogger(__name__)
 
 MODEL = DEFAULT_MODEL_NAME
 
@@ -141,7 +139,7 @@ def ai_transaction_summary(
         result = agent_instance.run_sync(prompt, model_settings=model_settings)
         summary_output = result.output
     except (ModelHTTPError, ModelAPIError, UnexpectedModelBehavior) as e:
-        log.warning("AI model request failed: %s", e)
+        log.warning("ai model request failed", error=e)
         return TransactionSummary(id=None, summary="")
 
     if summary_output is None:
@@ -153,7 +151,7 @@ def ai_transaction_summary(
             chosen_id = int(parsed["id"]) if parsed.get("id") is not None else None
             summary = str(parsed.get("summary") or "")
         except (json.JSONDecodeError, ValueError, KeyError):
-            log.warning("AI returned invalid JSON: %s", summary_output)
+            log.warning("ai returned invalid json", output=summary_output)
             return TransactionSummary(id=None, summary="")
     elif isinstance(summary_output, TransactionSummary):
         chosen_id = summary_output.id

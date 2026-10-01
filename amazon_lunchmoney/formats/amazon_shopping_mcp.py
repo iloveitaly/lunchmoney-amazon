@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import datetime
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
 from ..amazon import AmazonTransaction
+from ..log import log
 from .base import OrderHistoryAdapter
-
-log = logging.getLogger(__name__)
 
 
 def _parse_date(value: object) -> str:
@@ -68,10 +66,10 @@ class AmazonShoppingMcpAdapter(OrderHistoryAdapter):
                 try:
                     row = json.loads(line)
                 except json.JSONDecodeError:
-                    log.warning("skipping malformed JSON on line %s", line_number)
+                    log.warning("skipping malformed json", line_number=line_number)
                     continue
                 if not isinstance(row, dict):
-                    log.warning("skipping non-object JSON on line %s", line_number)
+                    log.warning("skipping non-object json", line_number=line_number)
                     continue
                 transactions.append(_row_to_transaction(row))
         return transactions

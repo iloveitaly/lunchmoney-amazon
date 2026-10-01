@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -259,3 +260,12 @@ def test_invalid_limit_rejected(csv_file: Path, fakes: _FakeAI) -> None:
     )
     assert result.exit_code == 2
     assert "is not in the range" in result.output
+
+
+def test_verbose_flag(csv_file: Path, fakes: _FakeAI, monkeypatch) -> None:
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    result = CliRunner().invoke(
+        cli, ["-f", str(csv_file), "-c", "Shopping", "-k", "key", "-v", "--dry-run"]
+    )
+    assert result.exit_code == 0
+    assert os.environ.get("LOG_LEVEL") == "DEBUG"
