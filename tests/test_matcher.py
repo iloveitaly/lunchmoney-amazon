@@ -67,7 +67,6 @@ def test_rejects_match_outside_date_tolerance() -> None:
     assert len(remaining) == 1
 
 
-
 def test_match_is_removed_from_pool() -> None:
     remaining = [_am("A", "25.99"), _am("B", "25.99", date="2024-12-02")]
 

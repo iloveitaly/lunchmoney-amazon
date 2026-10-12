@@ -72,4 +72,3 @@ def filter_transactions_after_date(
     return [
         t for t in transactions if datetime.date.fromisoformat(t.date) >= after_date
     ]
-

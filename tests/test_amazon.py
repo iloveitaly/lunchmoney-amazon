@@ -55,8 +55,5 @@ def test_filter_transactions_after_date() -> None:
         AmazonTransaction(orderid="2", date="2024-01-05"),
         AmazonTransaction(orderid="3", date="2024-01-10"),
     ]
-    filtered = filter_transactions_after_date(
-        transactions, datetime.date(2024, 1, 5)
-    )
+    filtered = filter_transactions_after_date(transactions, datetime.date(2024, 1, 5))
     assert [t.orderid for t in filtered] == ["2", "3"]
-

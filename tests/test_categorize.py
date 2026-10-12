@@ -97,14 +97,12 @@ def test_build_note() -> None:
         == "existing. Online groceries #D01-1"
     )
     assert (
-        build_note("D01-1", "existing #D01-1", "Online groceries")
-        == "existing #D01-1"
+        build_note("D01-1", "existing #D01-1", "Online groceries") == "existing #D01-1"
     )
     assert (
         build_note("D01-1", "Online groceries", "Online groceries")
         == "Online groceries #D01-1"
     )
-
 
 
 def test_build_note_truncates() -> None:

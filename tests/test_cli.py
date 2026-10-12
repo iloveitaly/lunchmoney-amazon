@@ -10,7 +10,7 @@ from click.testing import CliRunner
 from structlog.testing import capture_logs
 
 from amazon_lunchmoney.categorize import TransactionSummary
-from amazon_lunchmoney.cli import cli
+from amazon_lunchmoney.cli import calculate_match_percentage, cli
 from amazon_lunchmoney.lunchmoney import Category, Transaction
 
 CSV = """orderid,items,categories,to,date,total,shipping,shipping_refund,gift,tax,refund,payments
@@ -102,7 +102,6 @@ def test_help() -> None:
     assert "--after-date" in result.output
 
 
-
 def test_missing_required_options() -> None:
     result = CliRunner().invoke(cli, [])
 
@@ -150,6 +149,50 @@ def test_dry_run_updates_nothing(csv_file: Path, fakes: _FakeAI) -> None:
         datetime.date(2024, 11, 24),
         datetime.date(2024, 12, 8),
     )
+
+
+def test_matching_summary_log(csv_file: Path, fakes: _FakeAI, monkeypatch) -> None:
+    txs = [
+        Transaction(
+            id=100,
+            date="2024-12-03",
+            payee="Amazon",
+            amount="25.99",
+            category_id=10,
+        ),
+        Transaction(
+            id=101,
+            date="2024-12-03",
+            payee="Amazon",
+            amount="99.99",
+            category_id=10,
+        ),
+        Transaction(
+            id=102,
+            date="2024-12-03",
+            payee="Amazon",
+            amount="25.99",
+            category_id=10,
+            custom_metadata={"amazon_order_id": "D01-9999999-9999999"},
+        ),
+    ]
+    monkeypatch.setattr(_FakeLMClient, "get_all_transactions", lambda self, s, e: txs)
+
+    with capture_logs() as cap:
+        result = CliRunner().invoke(
+            cli, ["-f", str(csv_file), "-c", "Shopping", "-k", "key"]
+        )
+
+    assert result.exit_code == 0
+    summary = next(
+        (entry for entry in cap if entry.get("event") == "matching summary"), None
+    )
+    assert summary is not None
+    assert summary.get("matched") == 1
+    assert summary.get("unmatched") == 1
+    assert summary.get("skipped") == 1
+    assert summary.get("total") == 3
+    assert summary.get("percentage_matched") == 50.0
 
 
 def test_categorizes_match_and_updates_notes(csv_file: Path, fakes: _FakeAI) -> None:
@@ -295,9 +338,7 @@ def test_verbose_flag(csv_file: Path, fakes: _FakeAI, monkeypatch) -> None:
     assert os.environ.get("LOG_LEVEL") == "DEBUG"
 
 
-def test_after_date_filters_orders(
-    tmp_path: Path, fakes: _FakeAI, monkeypatch
-) -> None:
+def test_after_date_filters_orders(tmp_path: Path, fakes: _FakeAI, monkeypatch) -> None:
     orders_csv = (
         CSV.replace("__TO__", "Michael Bianco")
         + 'D01-2222222-2222222,Pen,Office,Michael Bianco,2024-12-15,45.00,0,0,0,0,0,"2024-12-15: $45.00; "\n'
@@ -345,9 +386,7 @@ def test_after_date_filters_orders(
     assert fakes.calls == ["Pen"]
 
 
-def test_after_date_shorthand_flag(
-    tmp_path: Path, fakes: _FakeAI, monkeypatch
-) -> None:
+def test_after_date_shorthand_flag(tmp_path: Path, fakes: _FakeAI, monkeypatch) -> None:
     orders_csv = (
         CSV.replace("__TO__", "Michael Bianco")
         + 'D01-2222222-2222222,Pen,Office,Michael Bianco,2024-12-15,45.00,0,0,0,0,0,"2024-12-15: $45.00; "\n'
@@ -386,9 +425,7 @@ def test_after_date_shorthand_flag(
     assert _FakeLMClient.last.updates[0][0] == 101
 
 
-def test_invalid_after_date_format_rejected(
-    csv_file: Path, fakes: _FakeAI
-) -> None:
+def test_invalid_after_date_format_rejected(csv_file: Path, fakes: _FakeAI) -> None:
     result = CliRunner().invoke(
         cli,
         [
@@ -453,3 +490,10 @@ def test_skips_transaction_with_existing_amazon_order_id(
     assert fakes.calls == []
 
 
+def test_calculate_match_percentage() -> None:
+    assert calculate_match_percentage(0, 0) == 0.0
+    assert calculate_match_percentage(1, 0) == 100.0
+    assert calculate_match_percentage(0, 1) == 0.0
+    assert calculate_match_percentage(1, 1) == 50.0
+    assert calculate_match_percentage(3, 1) == 75.0
+    assert calculate_match_percentage(1, 2) == 33.33

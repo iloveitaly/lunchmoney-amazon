@@ -39,6 +39,15 @@ DAY_ADJUSTMENT = 7
 GIFT_CATEGORY_NAME = "Gifts"
 
 
+def calculate_match_percentage(matched: int, unmatched: int) -> float:
+    "Calculate the percentage of evaluated transactions that were matched"
+    total = matched + unmatched
+    if total == 0:
+        return 0.0
+
+    return round((matched / total) * 100, 2)
+
+
 def echo_cli_version(ctx: click.Context, param: click.Parameter, value: bool) -> None:
     if not value or ctx.resilient_parsing:
         return
@@ -201,15 +210,24 @@ def cli(
     normalized_owner_names = [name.lower().strip() for name in owner_names]
     ai_agent: Agent[None, TransactionSummary] | None = None
 
+    matched_count = 0
+    unmatched_count = 0
+    skipped_count = 0
+
     for transaction in uncategorized:
-        if (
-            transaction.custom_metadata
-            and transaction.custom_metadata.get("amazon_order_id")
+        if transaction.custom_metadata and transaction.custom_metadata.get(
+            "amazon_order_id"
         ):
             log.debug(
                 "skipping transaction with amazon order id",
                 id=transaction.id,
             )
+            skipped_count += 1
+            continue
+
+        if transaction.is_group or transaction.group_id:
+            log.warning("skipping group transaction", id=transaction.id)
+            skipped_count += 1
             continue
 
         matching_amazon_transaction = find_matching_transaction(
@@ -225,11 +243,10 @@ def cli(
                 notes=transaction.notes,
                 date=transaction.date,
             )
+            unmatched_count += 1
             continue
 
-        if transaction.is_group or transaction.group_id:
-            log.warning("skipping group transaction", id=transaction.id)
-            continue
+        matched_count += 1
 
         target_category_name: str | None = None
         transaction_summary: str | None = None
@@ -364,3 +381,13 @@ def cli(
                 log.info("updated transaction", id=transaction.id)
 
     log.info("remaining uncategorized transactions", count=len(amazon_transactions))
+
+    percentage_matched = calculate_match_percentage(matched_count, unmatched_count)
+    log.info(
+        "matching summary",
+        matched=matched_count,
+        unmatched=unmatched_count,
+        percentage_matched=percentage_matched,
+        skipped=skipped_count,
+        total=len(uncategorized),
+    )

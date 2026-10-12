@@ -7,7 +7,6 @@ import datetime
 from .amazon import AmazonTransaction
 from .lunchmoney import Transaction
 
-
 DATE_TOLERANCE_DAYS = 5
 
 
