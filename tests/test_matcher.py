@@ -48,7 +48,7 @@ def test_no_match_returns_none() -> None:
 
 def test_prefers_closest_date() -> None:
     remaining = [
-        _am("far", "25.99", date="2024-11-01"),
+        _am("far", "25.99", date="2024-11-30"),
         _am("near", "25.99", date="2024-12-02"),
     ]
 
@@ -56,6 +56,16 @@ def test_prefers_closest_date() -> None:
 
     assert match is not None
     assert match.orderid == "near"
+
+
+def test_rejects_match_outside_date_tolerance() -> None:
+    remaining = [_am("far", "25.99", date="2024-11-01")]
+
+    match = find_matching_transaction(_lm("25.99", date="2024-12-03"), remaining)
+
+    assert match is None
+    assert len(remaining) == 1
+
 
 
 def test_match_is_removed_from_pool() -> None:

@@ -194,14 +194,27 @@ def order_is_gift(transaction: AmazonTransaction, owner_names: list[str]) -> boo
 
 
 def build_note(orderid: str, existing_notes: str | None, summary: str | None) -> str:
-    """Build the updated LM note: order number plus an AI summary, truncated."""
-    # None would print as "None", which is why we need ""
-    new_note = f"#{orderid} {existing_notes or ''}".strip()
+    "Build the updated LM note with order number at the end"
+    if existing_notes and orderid in existing_notes:
+        return existing_notes
 
-    if summary:
-        new_note += f". {summary}"
+    parts: list[str] = []
+    if existing_notes and existing_notes.strip():
+        parts.append(existing_notes.strip())
 
-    return new_note[:NOTE_LIMIT]
+    if summary and summary.strip() and summary.strip() not in parts:
+        parts.append(summary.strip())
+
+    if not parts:
+        return f"#{orderid}"[:NOTE_LIMIT]
+
+    prefix = ". ".join(parts)
+    suffix = f" #{orderid}"
+    max_prefix_len = NOTE_LIMIT - len(suffix)
+    if len(prefix) > max_prefix_len:
+        prefix = prefix[:max_prefix_len].rstrip()
+
+    return f"{prefix}{suffix}"
 
 
 def should_update_note(existing_notes: str | None, orderid: str) -> bool:

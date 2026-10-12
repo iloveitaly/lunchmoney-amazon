@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 from pydantic_ai import Agent
 
-from .amazon import date_range, is_matchable
+from .amazon import date_range, filter_transactions_after_date, is_matchable
 from .categorize import (
     TransactionSummary,
     ai_transaction_summary,
@@ -98,6 +98,13 @@ def echo_cli_version(ctx: click.Context, param: click.Parameter, value: bool) ->
     default=None,
     help="limit the number of input order transactions to process",
 )
+@click.option(
+    "-a",
+    "--after-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="only process transactions on or after this date (YYYY-MM-DD)",
+)
 def cli(
     verbose: bool,
     history_file: Path,
@@ -107,9 +114,12 @@ def cli(
     owner_names: tuple[str, ...],
     default_category: str,
     limit: int | None,
+    after_date: datetime.datetime | None,
 ) -> None:
     if verbose:
         setup_logging(verbose=True)
+
+    after_date_val = after_date.date() if after_date is not None else None
 
     log.debug(
         "options",
@@ -119,6 +129,7 @@ def cli(
         owners=owner_names,
         default_category=default_category,
         limit=limit,
+        after_date=after_date_val,
     )
 
     if not lunch_money_key:
@@ -140,6 +151,10 @@ def cli(
         all_amazon_transactions = all_amazon_transactions[:limit]
 
     amazon_transactions = [t for t in all_amazon_transactions if is_matchable(t)]
+    if after_date_val is not None:
+        amazon_transactions = filter_transactions_after_date(
+            amazon_transactions, after_date_val
+        )
 
     if not amazon_transactions:
         raise click.ClickException(
@@ -174,6 +189,8 @@ def cli(
     # only touch transactions still sitting in the default category. This assumes
     # you have a default rule set up in LM for amazon transactions.
     uncategorized = [t for t in charges if t.category_id == default_category_id]
+    # process newest transactions first
+    uncategorized.sort(key=lambda t: t.date, reverse=True)
 
     log.info(
         "lunch money transactions we can match",
@@ -185,6 +202,16 @@ def cli(
     ai_agent: Agent[None, TransactionSummary] | None = None
 
     for transaction in uncategorized:
+        if (
+            transaction.custom_metadata
+            and transaction.custom_metadata.get("amazon_order_id")
+        ):
+            log.debug(
+                "skipping transaction with amazon order id",
+                id=transaction.id,
+            )
+            continue
+
         matching_amazon_transaction = find_matching_transaction(
             transaction, amazon_transactions
         )
@@ -225,15 +252,16 @@ def cli(
 
             # kind of silly to convert to name, but makes the rest of the code more simple
             if summary_response.id is not None:
-                log.debug(
-                    "ai chose category for items",
-                    category_id=summary_response.id,
-                    items=matching_amazon_transaction.items,
-                )
                 match = next(
                     (c for c in prompt_cats if c.id == summary_response.id), None
                 )
                 target_category_name = match.name if match else None
+                log.info(
+                    "ai chose category for items",
+                    category_id=summary_response.id,
+                    category_name=target_category_name,
+                    items=matching_amazon_transaction.items,
+                )
             else:
                 log.warning(
                     "ai could not match transaction",
@@ -246,6 +274,15 @@ def cli(
         update_note = should_update_note(
             transaction.notes, matching_amazon_transaction.orderid
         )
+        existing_custom_metadata = transaction.custom_metadata or {}
+        update_metadata = (
+            existing_custom_metadata.get("amazon_order_id")
+            != matching_amazon_transaction.orderid
+        )
+        custom_metadata = {
+            **existing_custom_metadata,
+            "amazon_order_id": matching_amazon_transaction.orderid,
+        }
 
         if target_category_name is None:
             log.info(
@@ -255,12 +292,30 @@ def cli(
             )
 
             # TODO we want to update the transaction to have a note, even if we don't change the category
-            if not dry_run and update_note:
-                updated = client.update_transaction(transaction.id, notes=new_note)
-                if not updated:
-                    log.error("failed to update transaction", id=transaction.id)
+            if update_note or update_metadata:
+                if dry_run:
+                    log.info(
+                        "updating notes for transaction",
+                        id=transaction.id,
+                        dry_run=True,
+                    )
                 else:
-                    log.info("updated notes for transaction", id=transaction.id)
+                    updated = client.update_transaction(
+                        transaction.id,
+                        notes=new_note if update_note else None,
+                        custom_metadata=custom_metadata if update_metadata else None,
+                    )
+                    if not updated:
+                        log.error(
+                            "failed to update transaction",
+                            id=transaction.id,
+                            notes=new_note if update_note else None,
+                            custom_metadata=custom_metadata
+                            if update_metadata
+                            else None,
+                        )
+                    else:
+                        log.info("updated notes for transaction", id=transaction.id)
             continue
 
         log.debug(
@@ -277,17 +332,34 @@ def cli(
             log.error("invalid category name", category_name=target_category_name)
             continue
 
-        log.info("updating transaction", id=transaction.id)
-        log.debug("content of update", note=new_note, category_id=new_category_id)
+        if dry_run:
+            log.info("updating transaction", id=transaction.id, dry_run=True)
+        else:
+            log.info("updating transaction", id=transaction.id)
+
+        log.debug(
+            "content of update",
+            note=new_note if update_note else None,
+            category_id=new_category_id,
+            category_name=target_category_name,
+            custom_metadata=custom_metadata if update_metadata else None,
+        )
 
         if not dry_run:
             updated = client.update_transaction(
                 transaction.id,
                 category_id=new_category_id,
                 notes=new_note if update_note else None,
+                custom_metadata=custom_metadata if update_metadata else None,
             )
             if not updated:
-                log.error("failed to update transaction", id=transaction.id)
+                log.error(
+                    "failed to update transaction",
+                    id=transaction.id,
+                    category_id=new_category_id,
+                    notes=new_note if update_note else None,
+                    custom_metadata=custom_metadata if update_metadata else None,
+                )
             else:
                 log.info("updated transaction", id=transaction.id)
 

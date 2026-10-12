@@ -2,7 +2,12 @@
 
 import datetime
 
-from amazon_lunchmoney.amazon import AmazonTransaction, date_range, is_matchable
+from amazon_lunchmoney.amazon import (
+    AmazonTransaction,
+    date_range,
+    filter_transactions_after_date,
+    is_matchable,
+)
 
 
 def test_is_matchable() -> None:
@@ -42,3 +47,16 @@ def test_date_range() -> None:
         datetime.date(2024, 1, 1),
         datetime.date(2024, 1, 10),
     )
+
+
+def test_filter_transactions_after_date() -> None:
+    transactions = [
+        AmazonTransaction(orderid="1", date="2024-01-01"),
+        AmazonTransaction(orderid="2", date="2024-01-05"),
+        AmazonTransaction(orderid="3", date="2024-01-10"),
+    ]
+    filtered = filter_transactions_after_date(
+        transactions, datetime.date(2024, 1, 5)
+    )
+    assert [t.orderid for t in filtered] == ["2", "3"]
+

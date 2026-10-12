@@ -65,7 +65,9 @@ Options:
                                   determine if a order is a gift
   -c, --default-category TEXT     default category  [required]
   -l, --limit INTEGER RANGE       limit the number of input order transactions
-                                  to process [x>=1]
+                                  to process  [x>=1]
+  -a, --after-date [%Y-%m-%d]     only process transactions on or after this
+                                  date (YYYY-MM-DD)
   -h, --help                      Show this message and exit.
 ```
 

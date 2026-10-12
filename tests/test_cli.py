@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from structlog.testing import capture_logs
 
 from amazon_lunchmoney.categorize import TransactionSummary
 from amazon_lunchmoney.cli import cli
@@ -39,6 +40,7 @@ class _FakeLMClient:
     def __init__(self, token: str) -> None:
         self.token = token
         self.updates: list[tuple[int, int | None, str | None]] = []
+        self.metadata_updates: list[tuple[int, dict | None]] = []
         self.date_range: tuple[datetime.date, datetime.date] | None = None
         _FakeLMClient.last = self
 
@@ -52,9 +54,15 @@ class _FakeLMClient:
         return LM_TRANSACTIONS
 
     def update_transaction(
-        self, transaction_id: int, *, category_id=None, notes=None
+        self,
+        transaction_id: int,
+        *,
+        category_id=None,
+        notes=None,
+        custom_metadata=None,
     ) -> bool:
         self.updates.append((transaction_id, category_id, notes))
+        self.metadata_updates.append((transaction_id, custom_metadata))
         return True
 
 
@@ -91,6 +99,8 @@ def test_help() -> None:
     assert result.exit_code == 0
     assert "--file" in result.output
     assert "--default-category" in result.output
+    assert "--after-date" in result.output
+
 
 
 def test_missing_required_options() -> None:
@@ -115,11 +125,22 @@ def test_unknown_default_category(csv_file: Path, fakes: _FakeAI) -> None:
 
 
 def test_dry_run_updates_nothing(csv_file: Path, fakes: _FakeAI) -> None:
-    result = CliRunner().invoke(
-        cli, ["-f", str(csv_file), "-c", "Shopping", "-k", "key", "--dry-run"]
-    )
+    with capture_logs() as cap:
+        result = CliRunner().invoke(
+            cli, ["-f", str(csv_file), "-c", "Shopping", "-k", "key", "--dry-run"]
+        )
 
     assert result.exit_code == 0
+    assert any(
+        entry.get("event") == "updating transaction" and entry.get("dry_run") is True
+        for entry in cap
+    )
+    assert any(
+        entry.get("event") == "ai chose category for items"
+        and entry.get("category_id") == 42
+        and entry.get("category_name") == "Books"
+        for entry in cap
+    )
     assert _FakeLMClient.last is not None
     assert _FakeLMClient.last.updates == []
     # the AI still runs in dry-run mode
@@ -139,7 +160,10 @@ def test_categorizes_match_and_updates_notes(csv_file: Path, fakes: _FakeAI) -> 
     assert result.exit_code == 0
     assert _FakeLMClient.last is not None
     assert _FakeLMClient.last.updates == [
-        (100, 42, "#D01-1111111-1111111. Reading material")
+        (100, 42, "Reading material #D01-1111111-1111111")
+    ]
+    assert _FakeLMClient.last.metadata_updates == [
+        (100, {"amazon_order_id": "D01-1111111-1111111"})
     ]
 
 
@@ -191,7 +215,7 @@ def test_mcp_format_reads_jsonl(tmp_path: Path, fakes: _FakeAI) -> None:
     assert result.exit_code == 0
     assert _FakeLMClient.last is not None
     assert _FakeLMClient.last.updates == [
-        (100, 42, "#112-7108886-6473855. Reading material")
+        (100, 42, "Reading material #112-7108886-6473855")
     ]
 
 
@@ -269,3 +293,163 @@ def test_verbose_flag(csv_file: Path, fakes: _FakeAI, monkeypatch) -> None:
     )
     assert result.exit_code == 0
     assert os.environ.get("LOG_LEVEL") == "DEBUG"
+
+
+def test_after_date_filters_orders(
+    tmp_path: Path, fakes: _FakeAI, monkeypatch
+) -> None:
+    orders_csv = (
+        CSV.replace("__TO__", "Michael Bianco")
+        + 'D01-2222222-2222222,Pen,Office,Michael Bianco,2024-12-15,45.00,0,0,0,0,0,"2024-12-15: $45.00; "\n'
+    )
+    path = tmp_path / "orders.csv"
+    path.write_text(orders_csv)
+
+    txs = [
+        Transaction(
+            id=100,
+            date="2024-12-03",
+            payee="Amazon",
+            amount="25.99",
+            category_id=10,
+        ),
+        Transaction(
+            id=101,
+            date="2024-12-17",
+            payee="Amazon",
+            amount="45.00",
+            category_id=10,
+        ),
+    ]
+    monkeypatch.setattr(_FakeLMClient, "get_all_transactions", lambda self, s, e: txs)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "-f",
+            str(path),
+            "-c",
+            "Shopping",
+            "-k",
+            "key",
+            "--after-date",
+            "2024-12-10",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert _FakeLMClient.last is not None
+    # only the order on or after 2024-12-10 was processed
+    assert len(_FakeLMClient.last.updates) == 1
+    assert _FakeLMClient.last.updates[0][0] == 101
+    assert fakes.calls == ["Pen"]
+
+
+def test_after_date_shorthand_flag(
+    tmp_path: Path, fakes: _FakeAI, monkeypatch
+) -> None:
+    orders_csv = (
+        CSV.replace("__TO__", "Michael Bianco")
+        + 'D01-2222222-2222222,Pen,Office,Michael Bianco,2024-12-15,45.00,0,0,0,0,0,"2024-12-15: $45.00; "\n'
+    )
+    path = tmp_path / "orders.csv"
+    path.write_text(orders_csv)
+
+    txs = [
+        Transaction(
+            id=101,
+            date="2024-12-17",
+            payee="Amazon",
+            amount="45.00",
+            category_id=10,
+        ),
+    ]
+    monkeypatch.setattr(_FakeLMClient, "get_all_transactions", lambda self, s, e: txs)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "-f",
+            str(path),
+            "-c",
+            "Shopping",
+            "-k",
+            "key",
+            "-a",
+            "2024-12-10",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert _FakeLMClient.last is not None
+    assert len(_FakeLMClient.last.updates) == 1
+    assert _FakeLMClient.last.updates[0][0] == 101
+
+
+def test_invalid_after_date_format_rejected(
+    csv_file: Path, fakes: _FakeAI
+) -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "-f",
+            str(csv_file),
+            "-c",
+            "Shopping",
+            "-k",
+            "key",
+            "--after-date",
+            "2024/12/01",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "does not match the format '%Y-%m-%d'" in result.output
+
+
+def test_after_date_filters_out_all_transactions(
+    csv_file: Path, fakes: _FakeAI
+) -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "-f",
+            str(csv_file),
+            "-c",
+            "Shopping",
+            "-k",
+            "key",
+            "--after-date",
+            "2025-01-01",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "No transactions found after filtering" in result.output
+
+
+def test_skips_transaction_with_existing_amazon_order_id(
+    csv_file: Path, fakes: _FakeAI, monkeypatch
+) -> None:
+    txs = [
+        Transaction(
+            id=100,
+            date="2024-12-03",
+            payee="Amazon",
+            amount="25.99",
+            category_id=10,
+            custom_metadata={"amazon_order_id": "D01-1111111-1111111"},
+        ),
+    ]
+    monkeypatch.setattr(_FakeLMClient, "get_all_transactions", lambda self, s, e: txs)
+
+    result = CliRunner().invoke(
+        cli, ["-f", str(csv_file), "-c", "Shopping", "-k", "key"]
+    )
+
+    assert result.exit_code == 0
+    assert _FakeLMClient.last is not None
+    assert _FakeLMClient.last.updates == []
+    assert fakes.calls == []
+
+

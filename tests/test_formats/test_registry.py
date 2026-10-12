@@ -52,3 +52,16 @@ def test_read_orders_dispatches_on_format(tmp_path: Path) -> None:
     assert len(read_orders(csv_path, FORMAT_AZAD)) == 2
     assert len(read_orders(csv_path)) == 2
     assert len(read_orders(jsonl_path, FORMAT_AMAZON_SHOPPING_MCP)) == 1
+
+
+def test_read_orders_sorts_newest_first(tmp_path: Path) -> None:
+    csv_path = tmp_path / "orders.csv"
+    csv_path.write_text(
+        "orderid,items,to,date,total\n"
+        "old-1,Book,Mike,2021-01-01,9.99\n"
+        "new-1,Pen,Mike,2024-12-01,1.99\n"
+        "mid-1,Toy,Mike,2023-06-15,4.99\n"
+    )
+
+    transactions = read_orders(csv_path, FORMAT_AZAD)
+    assert [t.orderid for t in transactions] == ["new-1", "mid-1", "old-1"]

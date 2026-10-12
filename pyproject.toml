@@ -14,7 +14,7 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.1.0",
-    "httpx>=0.28.0",
+    "lunchmoney-python>=2.27.0",
     "pydantic-ai-slim[anthropic,google,openai]>=2.46.0",
     "structlog-config>=0.15.0",
 ]

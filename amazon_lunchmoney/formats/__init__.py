@@ -40,5 +40,11 @@ def get_adapter(file_format: str) -> OrderHistoryAdapter:
 def read_orders(
     file_path: str | Path, file_format: str = FORMAT_AZAD
 ) -> list[AmazonTransaction]:
-    """Read an order history file in the given format into transactions."""
-    return get_adapter(file_format).read(file_path)
+    """Read an order history file in the given format into transactions, newest first."""
+    transactions = get_adapter(file_format).read(file_path)
+    # sort newest first so recent transactions are prioritized
+    return sorted(
+        transactions,
+        key=lambda t: t.date if t.date and t.date[0].isdigit() else "",
+        reverse=True,
+    )

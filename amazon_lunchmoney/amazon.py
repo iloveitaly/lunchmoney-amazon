@@ -62,3 +62,14 @@ def date_range(
     """Return the (min, max) order date across the given transactions."""
     dates = [datetime.date.fromisoformat(t.date) for t in transactions]
     return min(dates), max(dates)
+
+
+def filter_transactions_after_date(
+    transactions: list[AmazonTransaction],
+    after_date: datetime.date,
+) -> list[AmazonTransaction]:
+    "filter transactions to only those on or after the given date"
+    return [
+        t for t in transactions if datetime.date.fromisoformat(t.date) >= after_date
+    ]
+

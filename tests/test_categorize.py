@@ -90,15 +90,28 @@ def test_order_is_gift() -> None:
 
 def test_build_note() -> None:
     assert build_note("D01-1", None, None) == "#D01-1"
-    assert build_note("D01-1", "existing", None) == "#D01-1 existing"
-    assert build_note("D01-1", None, "Online groceries") == "#D01-1. Online groceries"
+    assert build_note("D01-1", "existing", None) == "existing #D01-1"
+    assert build_note("D01-1", None, "Online groceries") == "Online groceries #D01-1"
+    assert (
+        build_note("D01-1", "existing", "Online groceries")
+        == "existing. Online groceries #D01-1"
+    )
+    assert (
+        build_note("D01-1", "existing #D01-1", "Online groceries")
+        == "existing #D01-1"
+    )
+    assert (
+        build_note("D01-1", "Online groceries", "Online groceries")
+        == "Online groceries #D01-1"
+    )
+
 
 
 def test_build_note_truncates() -> None:
     note = build_note("D01-1", "x" * 500, "y" * 100)
 
     assert len(note) == NOTE_LIMIT
-    assert note.startswith("#D01-1")
+    assert note.endswith("#D01-1")
 
 
 def test_should_update_note() -> None:
