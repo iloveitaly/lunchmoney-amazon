@@ -97,6 +97,6 @@ jobs:
 
 
       - name: Make sure the CLI runs properly
-        run: uv run ${{ github.event.repository.name }} --help
+        run: uv run amazon-lunchmoney --help
 
       - run: just test
