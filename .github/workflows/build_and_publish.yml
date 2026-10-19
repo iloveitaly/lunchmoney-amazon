@@ -28,7 +28,7 @@ jobs:
         with:
           # Check out branch instead of detached HEAD so bare git push works
           ref: ${{ github.ref_name }}
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           bootstrap: true
           bootstrap_args: --update --yes
@@ -69,7 +69,7 @@ jobs:
         with:
           # full history so `gitleaks git` in `just lint` can scan every commit
           fetch-depth: 0
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         env:
           MISE_ENV: ci
         with:
@@ -87,7 +87,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           bootstrap: true
           bootstrap_args: --update --yes
