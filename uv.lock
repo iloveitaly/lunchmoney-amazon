@@ -1122,7 +1122,7 @@ wheels = [
 
 [[package]]
 name = "lunchmoney-python"
-version = "2.29.0"
+version = "2.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
@@ -1130,9 +1130,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/82/92/514cd64a03b5d2be4e14e782e652af33dbb434e4147f27f93a43c39b7efa/lunchmoney_python-2.29.0.tar.gz", hash = "sha256:b29791f691309c8697d606f12ca401eb14862fc2d528905466bf325debb4abfd", size = 194867, upload-time = "2026-11-06T00:53:19.73Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/57/f5/a84c62d65ab5098fff218c2c0f418a73712e41d2b314f93e0d1c53af8c7a/lunchmoney_python-2.30.0.tar.gz", hash = "sha256:db541c28d96bac2877b4fd9121087c2fb20caa399a3cc17d471f05cf92d6aa6a", size = 194727, upload-time = "2026-11-07T23:30:20.283Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/56/5d3b67ef77359ab352f558757f584a268bc1301912685bdb739451638e61/lunchmoney_python-2.29.0-py3-none-any.whl", hash = "sha256:857e0e8e228a15ab5907db37ff375d59299d5daffaeb8717ef3102b7c3f246b4", size = 411355, upload-time = "2026-11-06T00:53:18.364Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/6a/ffa685c8c48e6168341588629681cfd695331a58f15774a3c15fba6f9189/lunchmoney_python-2.30.0-py3-none-any.whl", hash = "sha256:94e762671146c1a1299be952c08a58642d273edde0fa8affe235b4143ca086c3", size = 411376, upload-time = "2026-11-07T23:30:18.668Z" },
 ]
 
 [[package]]
