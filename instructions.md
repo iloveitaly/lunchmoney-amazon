@@ -6,7 +6,9 @@ Coding instructions for all programming languages:
 - Prefer early returns over nested if statements.
 - Prefer `continue` within a loop vs nested if statements.
 - Prefer smaller functions over larger functions. Break up logic into smaller chunks with well-named functions.
+- Use named constants for magic numbers, service urls, etc. Do not duplicate magic strings or numbers in code.
 - Prefer constants with separators: `10_000` is preferred to `10000` (or `10_00` over `1000` in the case of a integer representing cents).
+- Prefix feature-flag style constants with `{DISABLED,ENABLED}_`
 - When I ask you to write code, prioritize simplicity and legibility over covering all edge cases, handling all errors, etc.
 - When a particular need can be met with a mature, reasonably adopted and maintained package, I would prefer to use that package rather than engineering my own solution.
 - Never add error handling to catch an error without being asked to do so. Fail hard and early with assertions and allow exceptions to propagate.
@@ -16,12 +18,13 @@ Coding instructions for all programming languages:
 - Don't worry about fixing lint errors or running lint scripts unless I specifically ask you to.
 - When implementing workarounds for tooling limitations (like using `Any` for unresolvable types) or handling non-obvious edge cases, always add a brief inline comment explaining the technical reasoning.
 - Reserve exact-width `#`-box section separators for long files requiring organization, though they should not be necessary in the large majority of cases (separate files is generally better).
+- Complex functions, classes, etc (i.e. more than 10 lines or so) should have a concise docstr or comment describing their purpose.
 
 Use line breaks to organize code into logical groups. Instead of:
 
 ```python
 if not client_secret_id:
-    raise HTTPException(status.HTTP_400_BAD_REQUEST)
+    raise ClientError("Invalid client secret")
 session_id = client_secret_id.split("_secret")[0]
 ```
 
@@ -29,41 +32,559 @@ Prefer:
 
 ```python
 if not client_secret_id:
-    raise HTTPException(status.HTTP_400_BAD_REQUEST)
+    raise ClientError("Invalid client secret")
 
 session_id = client_secret_id.split("_secret")[0]
 ```
 
 **DO NOT FORGET**: keep your responses short, dense, and without fluff. I am a senior, well-educated software engineer, and hate long explanations.
 
-### Add Comments for Expert Engineer with Limited Domain Knowledge
-
-The engineer reading your code is a world-class software engineer, but is not familiar with the internals of every system. Include concise one-line comments explaining key hooks, API usage, blocks of logic, etc., to help the reader quickly understand the code you've written.
-
-In other words, embed the business requirements as comments in the code when the code does not self-document.
-
 ### Code Comments
 
-- Describe behavior as it exists today—don’t frame comments around version history or “old vs new.”
-- Only add comments if the code is not self-explanatory. Do not add obvious comments.
+Focus on self-documentation. Names, structure, and the command itself should explain what the code does.
+
+Comments and docstrings should explain actual business rules, user-visible behavior, or non-obvious technical constraints; avoid restating code structure or claiming unenforced behavior.
+
+The reader is a world-class engineer who may not know this domain or every third-party system. Add a concise one-line comment only when they would otherwise miss *why*:
+
+- a business rule the code can't express
+- non-obvious behavior or a gotcha in an external API, library, or tool
+- a workaround for a tooling limitation (e.g. `Any` for an unresolvable type)
+- a non-obvious edge case being handled
+
+If the comment restates the next line, its names, or the command's flags, delete it.
+
+Bad, restates the command:
+
+```just
+# install shared agent skills into the global skills dir
+pnpx skills add https://github.com/iloveitaly/ai-skills -g --all
+```
+
+Good, explains a tool limitation the code can't show:
+
+```just
+# docker can't copy files out of an image, only a container, so create a throwaway one
+docker create --name tmp-js-container {{JAVASCRIPT_IMAGE_TAG}}
+docker cp tmp-js-container:/app/build/production/client public
+```
+
+- Describe behavior as it exists today—don't frame comments around version history or "old vs new."
 - Do not remove existing comments.
 - Do not capitalize or add periods at the end of single-line comments.
+
+### Git Usage
+
+- Do not automatically commit changes unless I explicitly ask you to.
+- Never generate merge commits.
 
 ### Important Workflow Rules
 
 Pay careful attention to these instructions when running tests, generating database migrations, or otherwise figuring out how to operate this project:
 
+- When addressing review feedback, apply the underlying lesson to comparable code added or changed on the branch, not just the commented location.
 - Run `just` to understand the more important workflow commands.
   - Run `just --list` to see all available pre-written workflow development commands.
 - **IMPORTANT:** Never manually set environment variables that are required. You can set optional variables for debugging, but any missing required environment variables is an error that should be reported and you should stop your work immediately.
-- **NEVER** git commit changes. Always let me run any git commands which are not read-only.
 - Do not worry about cleaning up the environment. This is done automatically.
 - Run python code with `uv run python`
-- Use `pytest` to run tests. If tests fail because of a configuration, environment, or system error: let me know and stop working.
+- Build required test assets before running `pytest`; report the exact failure and stop when configuration, environment, system, or migration issues block validation.
   - Initially run `pytest --ignore=tests/integration` then only run `pytest tests/integration`
   - When debugging integration tests look at `$PLAYWRIGHT_RESULT_DIRECTORY`. There's a directory for each test failure. In that directory you fill find a `failure.html` containing the rendered DOM of the page on failure and a screenshot of the contents. Use these to debug why it failed.
 - Do not attempt to create or run database migrations. Pause your work and let me know you need a migration run.
   - If you receive errors about missing migrations, missing tables, database connectivity, etc, stop your work and let me know.
+
+## Alembic Migrations
+
+globs: migrations/versions/*.py
+
+- Migrations must stay compatible with offline SQL generation.
+- Pass the session connection into helpers rather than opening a new connection.
+- Prefer Alembic's enum integration over hand-written enum migrations when it works.
+- Migration logic should not use model classes.
+
+### Default Content for New Non-Nullable Columns
+
+To add a non-nullable column and set a specific value for all existing rows without a persistent server default:
+
+```python
+# 1. Add the column as nullable (no default needed):
+op.add_column(
+    "distribution",
+    sa.Column(
+        "default_campaign_ending_date", sa.DateTime(timezone=True), nullable=True
+    ),
+)
+# 2. Update existing rows with your desired value (e.g., a specific datetime)
+op.execute(
+    "UPDATE distribution SET default_campaign_ending_date = %s", [datetime.utcnow()]
+)
+# 3. Alter the column to non-nullable:
+op.alter_column("distribution", "default_campaign_ending_date", nullable=False)
+```
+
+### Record Backfill Operations
+
+For migrations that include data mutation, and not only schema modifications, use this pattern to setup a session:
+
+```python
+from alembic import op
+from sqlmodel import Session
+from activemodel.session_manager import global_session
+from app import log
+
+
+def run_migration_helper():
+    pass
+
+
+def upgrade() -> None:
+    session = Session(bind=op.get_bind())
+
+    with global_session(session):
+        run_migration_helper()
+        flip_point_coordinates()
+        backfill_screening_host_data()
+
+    # flush before running any other operations, otherwise not all changes will persist to the transaction
+    session.flush()
+```
+
+However, if you don't need the business logic attached to the models, you can execute a query using `op.execute`:
+
+```python
+op.execute(
+    TheModel.__table__.update().values({"a_field": "a_value"})  # type: ignore
+)
+```
+
+## Fastapi
+
+globs: app/routes/**/*.py
+
+- Raise `ClientError` (`app.routes.errors`) instead of `HTTPException`. See the `ClientError` docstring for further instructions and usage.
+- Do not return a `dict`, instead create a `class RouteNameResponse`
+  - Locate these classes right above the `def route_name():` function which uses them.
+- Use `Model.one` when a record must exist in order for the business logic to succeed.
+- Do not try/except `Model.one` when using a parameter from the request to pull a record. Let this exception bubble up.
+- Use `model_id: Annotated[TypeID, Path()]` to represent a model ID as a URL path parameter
+- Use the typed route helpers in `app/generated/fastapi_typed_routes.py` for all URL generation.
+- User-facing errors must not name internals. 3rd party API errors (Stripe, Clerk, etc) or internal implementation jargon should exist in error messages displayed to the browser. Think hard about user-facing error messages and make it clear what the user should do next.
+
+## Frontend Tests
+
+globs: **/*.test.tsx
+
+- Do not add unit tests that duplicate Playwright coverage. Only add unit tests for edge cases which are not covered by Playwright.
+
+## Mise
+
+globs: mise*toml, .mise/tasks/**/*
+
+- Docs: https://mise.jdx.dev/llms.txt
+- When using mise tasks prefer `#MISE` comments over shell implementation of argument parsing, input validation, etc
+
+## Shell Scripts
+
+globs: **/*.sh
+
+- Prefer zsh (assume latest version) over bash when you are certain it exists
+- Prefer stricter error handling over silent failure.
+- Hoist common environment variables to the top of the script.
+- Add a `Description:` comment at the top of the script to describe what the script does. 1-4 lines max.
+- Document conditional exits with a one-line explanation if it's not obvious.
+- Add line breaks between logical groups of code.
+
+## Justfiles
+
+globs: just/*.just
+
+- Docs: https://raw.githubusercontent.com/casey/just/master/README.md
+- Never use `just_executable()` to reference the executable for `just`. If `just` DNE, then something is wrong adn you should stop your work and let me know.
+- You should not have to mutate `$PATH`. If you cannot find an expected binary, stop your work and let me know.
+- Do not create aliases unless explicitly asked
+- Separate scripts larger than 5 lines with newlines and comments for non-obvious logic
+- Do not use inline shebang unless it differs from the default
+- Use `_` convention, not `[private]`
+- Use uppercase for shell variable
+- File path constants must end with `_PATH` (e.g. `SHARED_ENV_PATH`, `JAVASCRIPT_PACKAGE_JSON_PATH`); directory constants must end with `_DIR` (e.g. `WEB_DIR`, `JINJA_TEMPLATE_DIR`); do not use `_FILE`
+
+Use the following script execution configuration:
+
+```justfile
+# zsh is the default shell under macos, let's mirror it everywhere
+set shell := ["zsh", "-ceuB", "-o", "pipefail", "-o", "extended_glob"]
+
+# determines what shell to use for [script]
+set script-interpreter := ["zsh", "-euB", "-o", "pipefail", "-o", "extended_glob"]
+```
+
+## Pytest Integration Tests
+
+globs: tests/integration/**/*.py
+
+- Look to `app/factories/` to generate any required database state
+  - Here's an example of how to create + persist a factory `DistributionFactory.save(domain=PYTHON_TEST_SERVER_HOST)`
+- Add the `server` factory to each test
+- Use the `faker` factory to generate emails, etc.
+- Don't add obvious `assert` descriptions
+- Do not use the `db_session` fixture here. Instead, use `with test_session():` if you need to setup complex database state
+- if a UI timeout is occuring, it could be because it cannot find a element because the rendering has changed. Check the failure screenshot and see if you can correct the test assertion.
+- The integration tests can take a very long time to run. Do not abort them if they are taking a long time.
+- Use `expect(page.get_by_text("Screening is fully booked")).to_be_visible()` instead of `expect(page.get_by_role("heading")).to_contain_text("Screening is fully booked")`. It's less brittle.
+- Do not use `client` fixtures in an integration test. Integration tests should only use the frontend of the website to interact with the application, not the API.
+- Use `with page.expect_response("https://example.com/resource") as response_info:` to assert against network activity.
+- Do not `next_button.evaluate("el => el.click()")` instead, just `locator.click()`. If this doesn't work, stop your work and let me know.
+- Only use `wait_for_loading(page)` if a `LONG_INTEGRATION_TEST_TIMEOUT` on an expectation does not work: `expect(page.get_by_text("Your Matched Doctors")).to_be_visible(timeout=LONG_INTEGRATION_TEST_TIMEOUT)`
+  - `LONG_INTEGRATION_TEST_TIMEOUT` should only be used as a last resort. If you have many of these in a test, let me know and I will debug it.
+- Prefer fewer integration tests that cover more functionality. Unlike unit tests, where each test is designed to test a very particular piece of functionality, I want integration tests to cover entire workflows. It's preferred to add more steps to an integration test to test an entire workflow.
+- Prefer simple locators. If a `filter`, `or_`, etc is required to capture a button in multiple states it indicates something is wrong in the code.
+- Use `react_router_url` to generate the frontend url path and do not set `base_url`.
+- End all Playwright tests with `from pytest_playwright_artifacts import assert_no_console_errors` and `assert_no_console_errors(request)` (capture is the plugin's `playwright_console_logging` fixture).
+  - Test-Specific Ignores: Pass `ignore=[...]` to `assert_no_console_errors` per `pytest-playwright-artifacts` (regex strings, compiled patterns, or `{"file": "...", "message": "..."}` dicts); add a comment explaining why.
+  - Global Ignores: Use `playwright_console_ignore` under `[tool.pytest.ini_options]` in `pyproject.toml` (see `pytest-playwright-artifacts` README).
+- Do not change playwright launch flags or configuration to make one test easier.
+
+### Example Integration Test
+
+Below is an example test. Notice the following:
+
+- Code comments are used to describe the key user steps that are being tested
+- We avoid long timeouts or wait commands
+- Fixtures and factories are generated at the beginning of the test
+- We assert against database state after each major user action
+- Some of the comments (i.e. comments on included fixtures) are included for instructional purposes only and should not be included in the tests you write
+- comments in `()` are for description only, those sort of comments should exist in the code you write
+
+```python
+from pytest_playwright_artifacts import assert_no_console_errors
+
+
+def test_streaming_checkout_creates_user_and_links_order(
+    # (this fixture ensures that the underlying python server is started)
+    server,
+    # (if you need to generate fake data)
+    faker,
+    # (always required for playwright/browser access)
+    page: Page,
+    # (if you need to create objects (like factories) tied to a common DB session, include this fixture)
+    db_truncate_session,
+    # for asserting against the console logs
+    request: FixtureRequest,
+) -> None:
+    distribution = DistributionWithWebhooksFactory.save()
+    test_email = clerk_test_email()
+
+    # 1) Run through streaming checkout (describe the main user flow)
+    page.goto(react_router_url("/streaming"))
+
+    # (if there are multiple important states to the flow under test, take multiple screenshots and name them)
+    assert_snapshot(page, name="01-streaming-checkout")
+
+    page.get_by_placeholder("your@email.com").first.fill(test_email)
+    page.get_by_placeholder("your@email.com").last.fill(test_email)
+
+    # Check TOS (the role of this line is not obvious without this comment)
+    page.get_by_role("checkbox").last.check()
+
+    fill_stripe_checkout(page)
+
+    # 2) Complete checkout
+    # the stripe checkout form will expand and cause the purchase button to move below the screen (it's not obvious why we need to safely_scroll_then_click without this comment)
+    safely_scroll_then_click(page.get_by_role("button", name="Complete Purchase"))
+
+    expect(page.get_by_role("heading", name="You're ready to watch!")).to_be_visible()
+    page.get_by_role("link", name="Login & Start Watching").click()
+
+    # (the checkout completion state is a key state, take a another screenshot)
+    assert_snapshot(page, name="02-checkout-complete")
+
+    # 3) Assert against database and Clerk state
+
+    # One StreamingOrder should be created for this distribution and email
+    assert StreamingOrder.count() == 1
+    streaming_order = StreamingOrder.get(email=test_email)
+    assert streaming_order
+
+    assert streaming_order.status.value == "completed"
+    assert streaming_order.user_id is not None
+
+    # 4) Login to the app via the Clerk login page
+    clerk_login_and_verify(page, test_email)
+
+    expect(page.get_by_text("A Great Movie Name").first).to_be_visible()
+
+    # (notice that although this is a different page state, I did not get a screenshot, since the login page is not unique to this test and is screenshotted elsewhere)
+
+    # 5) Play the video
+    page.get_by_role("button").filter(has_text="Play").click()
+
+    # wait for the page to completely load (this is only required when there are many integrations on the page, such as loading an external iframe in this case)
+    wait_for_loading(page)
+
+    expect(page.get_by_text("A Great Movie Name").first).to_be_visible()
+    expect(page.get_by_text("Play")).not_to_be_visible()
+
+    assert_snapshot(page, name="03-play-movie")
+
+    # (at the end of every integration test, assert that there are no console errors)
+    assert_no_console_errors(
+        request,
+        ignore=[
+            {
+                # (if there are console errors specific to the project, exclude them here. Match to the specific URL if you can)
+                # (prefer globally-defined exclusions unless there are errors specific to this particular test)
+                "file": r"https://iframe.cloudflarestream.com/.*",
+                "message": "the server responded with a status of 403",
+            }
+        ],
+    )
+```
+
+## Pytest Tests
+
+globs: tests/**/*.py
+
+- Look first to `app.factories.*` instead of `app.models.*` to generate any required database state
+  - For example, to create and persist a `Distribution` record `DistributionFactory.save()`
+  - If a factory doesn't exist for the model you are working with, create one.
+  - You can customize one or more params in a factory using `DistributionFactory.save(host="custom_host.com)`
+- Use `faker` factory to generate emails, etc.
+- Do not mock or patch unless I instruct you to. Test as much of the application stack as possible in each test.
+- If you get lazy attribute errors, or need a database session to share across logic, use the `db_session` fixture to fix the issue.
+  - Note that when writing route tests a `db_session` is not needed for the logic inside of the route.
+- When testing Stripe, use the sandbox API. Never mock out Stripe interactions unless explicitly told to.
+- Omit obvious docstrs and comments. Add comments for non-obvious but easy-to-miss lines that are key to what the test is checking.
+- Do not add multiple tests for a one-line change.
+- If test state setup requires more than three distinct factories, you should probably create a new factory to represent this particular state.
+- Add pre-condition assertions when setup is load-bearing.
+- If a `monkeypatch` is truly needed, a one-line comment on why. Prefer full-stack testing over mocking.
+
+### Example Test
+
+Below is an example test, you'll notice the following:
+
+- Docstr is omitted since the purpose of the test is obvious
+- Comment about the `county` is added since it's the main point of the test
+- Newline between test setup, functionality under test, and assertions against result
+- `api_app_url_path_for` helper is used instead of hardcoded routes
+
+```python
+from app.generated.fastapi_typed_routes import api_app_url_path_for
+import json
+
+
+def test_calculate_quote_unknown_county(client):
+    payload = {
+        "subscriber": {"age": 35, "gender": "M"},
+        # fake county to ensure error is thrown
+        "county": "NotACounty",
+    }
+
+    response = client.post(
+        api_app_url_path_for("composite_quote"),
+        json=payload,
+    )
+
+    assert_status(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
+```
+
+### File Structure
+
+* If there's more than a handful of tests in a folder, you should probably create subfolders.
+* File name should be related to the file or primary class / functionality the test is covering. Do not add a component to the test name that exists in the test file path.
+  * Example: `app/routes/unauthenticated/quote.py` should be `tests/routes/unauthenticated/quote_test.py`
+* `tests/routes/{unauthenticated,authenticated}` and a handful of top-level test files for fastapi API route testing.
+* `tests/integration/` for browser tests
+* Reusable test helpers go in `tests/**/utils.py`.
+* Duplicating assertion setup once or twice is fine; beyond that, put it in `tests/**/assertions.py`
+
+## Python App
+
+globs: **/*.py
+
+Here's how the python application is organized:
+
+- `app/lib/` large modules not specific to this project that with some effort could be extracted into a pypi package.
+- `app/helpers` large modules that, if they weren't so tightly coupled to this project, could be extracted into their own package.
+- `app/utils` small utility functions specific to a page, domain, or just general utilities that are too small to be extracted into a dedicated package.
+- `app/__init__.py` is the entrypoint for the application which is run when _anything_ is executed (fastapi, celery, etc).
+  - It primarily runs `configure_*` commands for any `app.configuration.*` modules. These modules primary setup API clients, database connections, python language configuration, etc.
+  - Also makes sure anything that mutates global state loads early.
+- FastAPI server and routes are specified in `app/routes/`
+- SQLModels are specified in `app/models/`
+- Files within `app/commands/` should have:
+  - Are not designed for CLI execution, but instead are interactor-style internal commands.
+  - Should not be used on the queuing system
+  - A `perform` function that is the main entry point for the command.
+  - Look at existing commands for examples of how to structure the command.
+  - Use `TypeID` for any parameters that are IDs of models.
+- Files within `app/jobs/` should have:
+  - Are designed for use on the queuing system.
+  - A `perform` function that is the main entry point for the job.
+  - Look at existing jobs for examples of how to structure the job.
+  - Use `TypeID | str` for any parameters that are IDs of models.
+- When referencing a command, use the full-qualified name, e.g. `app.commands.transcript_deletion.perform`.
+- When queuing a job or `perform`ing it in a test, use the full-qualified name, e.g. `app.jobs.transcript_deletion.perform`.
+- `app/cli/` is for scripts or CLI tools that are specific to the application.
+- Webhooks should be fired in the model layer, not in a router or command.
+- Lifecycle logic (status/state transitions, webhook enqueue, access grants) should live on the model. Commands, routes, etc should not re-implement `after_save`-style logic.
+- Alias classes which are commonly used in the application. This makes it easier to grep for instances of that class without worrying about namespace clashes.
+  - Example: `from botocore.exceptions import ClientError as BotoCoreClientError` instead of a plain `ClientError`.
+  - `BaseModel` from `activemodel` is commonly used in `models/*.py`, so `pydantic`'s `BaseModel` should be aliased to `PydanticBaseModel`
+
+### 3rd Party APIs
+
+- Always use an official client library if it exists.
+- Be thoughtful about metadata fields. Only put data there for (a) reporting or (b) a joining key a downstream consumer actually reads. Do not duplicate keys or data in metadata fields without a clear and documented purpose.
+- Log unexpected API responses or shapes to Sentry.
+
+### Python Test Code Organization
+
+* `tests/**/utils.py` is for test-specific code that is not a fixture or a factory.
+* `app/factories/` is the single source of truth for factories used by tests, local playground code, and dev seeding helpers.
+  This is in the `app/` folder so that it can be used by seeding scripts.
+* `tests/**/assertions.py` all custom `assert_*` functions should go here.
+* `tests/**/conftest.py` is for test-specific fixtures. This is the only place you should put fixtures.
+* `tests/{commands,routes,jobs,models}/` map to corresponding application categories under `app/`.
+* `tests/integration/` is for browser tests.
+  * Certain complex 3rd party dependencies (like Stripe, Clerk, etc) may require complex helpers. If they do, create a
+    dedicated helper file in `tests/integration/**` (i.e. `stripe.py`, `clerk.py`, etc) to contain helper methods.
+
+### Factories
+
+globs: app/factories/**/.py
+
+* Each model should get it's own file under `app/factories/model_name.py`
+* `ActiveModelFactory` (which is a polyfactory subclass) should be used.
+* Use `BaseFactory.__faker__` to generate more specific fake data for important fields (used in routes, etc)
+* Prefer `slug = BaseFactory.__faker__.unique.slug` to `slug = Use(lambda: BaseFactory.__faker__.unique.slug())`
+* Only override factory fields that differ from defaults.
+
+#### Factory Example
+
+```python
+class ScreeningFactory(ActiveModelFactory[Screening]):
+    funding_goal = lambda: BaseFactory.__faker__.random_int(min=0, max=2000_00)
+
+    ticket_price = DEFAULT_TICKET_PRICE
+    status = ScreeningStatus.active
+
+    # always None
+    funding_ending_at = None
+
+    # pick entry from a fixed list
+    zip_code = lambda: BaseFactory.__faker__.random_element(elements=REAL_ZIP_CODES)
+
+    host_name = BaseFactory.__faker__.name
+    host_description = lambda: BaseFactory.__faker__.paragraph(nb_sentences=2)
+
+    # this method runs before the model is persisted to the database
+    @classmethod
+    def post_build(cls, model):
+        # if the user does not pass in a important relationship during creation, you can generate a factory fallback
+        if not model.distribution_id:
+            model.distribution_id = DistributionFactory.save().id
+
+        return model.save()
+
+    # runs after the model is persisted to the database
+    @classmethod
+    def post_save(cls, model):
+        return model.save()
+```
+
+### Database & ORM
+
+When accessing database records:
+
+* SQLModel (wrapping SQLAlchemy) is used
+* `Model.one(primary_key)` or `Model.get(primary_key)` should be used to retrieve a single record
+* Do not manage database sessions, these are managed by a custom tool
+  * Use `TheModel(...).save()` to persist a record
+  * Use `TheModel.where(...).order_by(...)` to query records. `.where()` returns a SQLAlchemy select object that you can further customize the query.
+  * To iterate over the records, you'll need to end your query chain with `.all()` which returns an interator: `TheModel.where(...)...all()`
+* Instead of repulling a record `order = HostScreeningOrder.one(order.id)` refresh it using `order.refresh()`
+
+When writing database models:
+
+* ActiveModel maps model docstrings and field documentation to database comments; changing them can require a migration even when no tables or columns change.
+* Don't use `Field(...)` unless required (i.e. when specifying a JSON type for a `dict` or pydantic model using `Field(sa_type=JSONB)`). For instance, use `= None` instead of `= Field(default=None)`.
+* Add enum classes close to where they are used, unless they are used across multiple classes (then put them at the top of the file)
+* Use `ModelName.foreign_key()` when generating a foreign key field
+* Store currency as an integer, e.g. $1 = 100.
+* `before_save`, `after_save(self):`, `after_updated(self):` are lifecycle methods (modelled after ActiveRecord) you can use.
+* Prefer to add constraints to the model over the frontend.
+
+Example:
+
+```python
+from pydantic import BaseModel as PydanticBaseModel
+from activemodel import BaseModel
+from typeid import TypeID
+from activemodel.mixins import (
+    PydanticJSONMixin,
+    SoftDeletionMixin,
+    TimestampsMixin,
+    TypeIDPrimaryKey,
+)
+
+
+# pydantic models should be defined outside of the model class if they are used in other codes or models
+class Video(PydanticBaseModel):
+    title: str
+    "name of the video"
+
+
+class Distribution(BaseModel, TimestampsMixin, SoftDeletionMixin, table=True):
+    """
+    Triple-quoted strings for multi-line class docstring
+    """
+
+    # nest enum definition classes inside the model
+    # use `DistributionState` instead of `State` to avoid postgres enum name conflicts
+    class DistributionState(StrEnum):
+        pending = "pending"
+        active = "active"
+        archived = "archived"
+
+    id: TypeID[Literal["dst"]] = TypeIDPrimaryKey("dst")
+
+    date_field_with_comment: datetime | None = None
+    "use a string under the field to add a comment about the field"
+
+    # no need to add a comment about an obvious field; no need for line breaks if there are no field-level docstrings
+    title: str = Field(unique=True)
+    state: DistributionState = DistributionState.pending
+
+    optional_field: str | None = None
+
+    videos: list[Video] = Field(
+        sa_type=JSONB,
+        nullable=False,
+        default_factory=list,
+        # ensures there is a empty list when the record is created
+        sa_column_kwargs={"server_default": sa.text("'[]'")},
+    )
+    "videos available alongside the main film"
+
+    # here's how relationships are constructed
+    doctor_id: TypeID = Doctor.foreign_key()
+    doctor: Doctor = Relationship()
+
+    @computed_field
+    @property
+    def order_count(self) -> int:
+        return self.where(Order.distribution_id == self.id).count()
+```
+
+## Python Route Tests
+
+globs: tests/routes/**/*.py
+
+- Polyfactory is the [factory](app/factories/) library in use. `ModelNameFactory.build()` is how you generate factories.
+- Use `assert_status(response)` instead of `assert response.status_code == status.HTTP_200_OK`
+- Do not reference routes by raw strings. Instead, use the typed route helpers defined in `app/generated/fastapi_typed_routes.py`.
 
 ## Python
 
@@ -77,8 +598,8 @@ When writing Python:
   * If a docstring needs formatting, use markdown. Use Google Style.
   * Prefer docstr to multi-line comments at the top of a function or file.
   * If a docstr does not span multiple lines, do not use triple-quoted strings.
-  * Add a newline after `"""` when using triple-quoted docstrings.
   * If a comment or docstr is a single line, do not end it in a period.
+  * Put multiline docstring delimiters on separate lines; leave a blank line after every docstring.
 * Do not create `__init__` files unless specifically instructed
 * Use Pydantic models over dataclass or a typed dict.
 * Use SQLAlchemy for generating any SQL queries.
@@ -94,6 +615,8 @@ When writing Python:
 * Always make an explicit copy before mutating a dictionary that you did not create in the current narrow scope.
 * Never use `from __future__`
 * Always use `re.compile(pattern, re.VERBOSE)` and inline `#` comments to document the logic of each capture group or condition in any complex regular expression.
+* Prefix boolean-returning predicate functions with `is_`, `has_`, `can_`, or `should_`
+* Prefix validation functions that raise an exception or terminate execution on failure with `assert_` rather than `check_` or `verify_`.
 * **IMPORTANT** never edit app/generated/ files. These are autogenerated.
 
 ### Package Management
@@ -135,5 +658,381 @@ params = f.compact({"city": city, "stateCode": stateCode})
 
 * Use the `whenever` library for datetime + time instead of the stdlib date library. `Instant.now().format_iso()`
 * DateTime mutation should explicitly opt in to a specific timezone `SystemDateTime.now().add(days=-7)`
+
+## React Router
+
+globs: web/app/routes/**/*.tsx
+
+- You are using the latest version of React Router (v7).
+- Always include the suffix `Page` when naming the default export of a route.
+- The primary export in a routes file should specify `loaderData` like `export default function RouteNamePage({ loaderData }: Route.ComponentProps)`. `loaderData` is the return value from `clientLoader`.
+- Use `href("/products/:id", { id: "abc123" })` to generate a url path for a route managed by the application.
+  - Look at [routes.ts](mdc:web/app/routes.ts) to determine what routes and path parameters exist.
+- Use `export async function clientLoader(loaderArgs: Route.ClientLoaderArgs)` to define a `clientLoader` on a route.
+- Do not define `Route.*` types, these are autogenerated and can be imported from `import type { Route } from "./+types/routeFileName"`
+- If URL parameters or query string values need to be checked before rendering the page, do this in a `clientLoader` and not in a `useEffect`
+- Never worry about generating types using `pnpm`
+- Use [`<AllMeta />`](web/app/components/shared/AllMeta.tsx) instead of MetaFunction or individual `<meta />` tags
+- Move derived config and business rules to the backend (computed fields, calculations, etc). Do not grow client-only sources of truth.
+- Use outlets to store global config (such as Stripe keys, application settings, etc).
+- Hide repeated mobile/desktop conditional styling behind a helper; individual components should not re-encode breakpoints
+- Use the following pattern to reference query string values (i.e. `?theQueryStringParam=value`)
+
+```typescript
+const [searchParams, _setSearchParams] = useSearchParams()
+// searchParams contains the value of all query string parameters
+const queryStringValue = searchParams.get("theQueryStringParam")
+```
+
+### Loading Mock Data
+
+Don't load mock data in the component function with `useEffect`. Instead, load data in a `clientLoader`:
+
+```typescript
+// in mock.ts
+export async function getServerData(options: any) {
+  // ...
+}
+
+// in web/app/routes/**/*.ts
+export async function clientLoader(loaderArgs: Route.ClientLoaderArgs) {
+  // no error reporting is needed, this will be handled by the `getServerData`
+  // mock loading functions should return result in a `data` key
+  const { data } = await getServerData({
+    /* ... */
+  });
+
+  // the return result here is available in `loaderData`
+  return data;
+}
+```
+
+### How to Use `clientLoader`
+
+- `export async function clientLoader(loaderArgs: Route.ClientLoaderArgs) {`
+- Load any server data required for page load here, not in the component function.
+- Use `return redirect(href("/the/url"))` to redirect users
+- Use [getQueryParam](web/app/lib/utils.ts) to get query string variables
+- `throw new Response` if you need to mimic a 400, 500, etc error
+- `loaderArgs` and all sub-objects are all fully typed
+- `loaderArgs.params.id` to get URL parameters
+
+### Loading Backend Data
+
+- `~/configuration/client` re-exports all types and functions from `client/*`. Import from `~/configuration/client` instead of anything you find in the `client/` folder/package.
+- For each API endpoint, there's a fully typed async function that can be used to call it. Never attempt to call an API endpoint directly.
+  - Do not generate types for API parameters or responses. Reference the autogenerated types that are re-exported in `~/configuration/client`
+  - For instance, the `getSignedUrl` function in [web/client/sdk.gen.ts] has a `SignedUrlResponse` type in [web/client/types.gen.ts]
+  - This same type is used in the function signature, i.e. `type SignedUrlResponse = Awaited<ReturnType<typeof getSignedUrl>>["data"]`
+
+- When using an import from `~/configuration/client`:
+  - use `body:` for request params
+  - always `const { data, error } = await theCall()`
+
+`clientLoader` can only be used on initial page load within a route. If you need to load additional server data on component mount:
+
+```tsx
+import { useQuery } from "@tanstack/react-query"
+import {
+  // these options correspond to the server route
+  createCheckoutSessionOptions,
+  publicClient,
+} from "~/configuration/client"
+
+function TheComponent() {
+  const { data, error } = useQuery({
+    enabled: open,
+    ...createCheckoutSessionOptions({
+      // or `client` if authenticated
+      client: publicClient,
+      body: { /* API parameters here */ },
+    }),
+  })
+
+  // remember to display errors by checking `error`
+}
+```
+
+## React
+
+globs: **/*.tsx
+
+- You are using the latest version of React (v19)
+- Do not write any backend code. Just frontend logic.
+- If a complex skeleton is needed, create a component function `LoadingSkeleton` in the same file.
+- Store components for each major page or workflow in `app/components/$WORKFLOW/$COMPONENT.tsx`.
+  - If a single page has more than two dedicated components, create a subfolder `app/components/$WORKFLOW/$PAGE/$COMPONENT.tsx`
+- Use lowercase dash separated words for file names.
+- Use React 19, TypeScript, Tailwind CSS, and ShadCN components.
+- Prefer function components, hooks over classes.
+- Use ShadCN components in `web/app/components/ui` as your component library. If you need new components, ask for them.
+  - Never edit the `web/components/ui/*.tsx` files.
+  - You can find a list of components here https://ui.shadcn.com/docs/components
+- Break up large components into smaller components, but keep them in the same file unless they can be generalized.
+- Put any "magic" strings like API keys, hosts, etc into a "constants.ts" file.
+- For React functional components with three or fewer props, always inline the prop types as an object literal directly in the function signature after the destructured parameters (e.g., `function Component({ prop1, prop2 }: { prop1: string; prop2?: number }) { ... })`. Include default values in destructuring and mark optional props with ? in the type object. Do not use separate interfaces or type aliases; keep types inline. For complex types, add inline comments if needed.
+- Put the interface definition right above the related function
+- Internally, store all currency values as integers and convert them to floats when rendering visually
+- When building forms use React Hook Form.
+- Include a two line breaks between any `useHook()` calls and any `useState()` definitions for a component.
+- When using a function prop inside a `useEffect`, please use a pattern that avoids including the function in the dependency array, like the `useRef` trick.
+- When writing React components, always hoist complex conditional expressions into descriptively named constants at the top of the component function for better readability and maintainability.
+- When managing API response data, store the entire response object (or relevant subset) in a single `useState` rather than creating separate state variables for each field. Derive individual values from the response object when passing to child components using optional chaining (e.g., response?.field || defaultValue).
+- Refactor ternary to &&: `{condition ? <A/> : <B/>}` → `{condition && <A/>}{!condition && <B/>}`
+- Use the following pattern to reference query string values (i.e. `?theQueryStringParam=value`):
+
+```typescript
+const [searchParams, _setSearchParams] = useSearchParams();
+// searchParams contains the value of all query string parameters
+const queryStringValue = searchParams.get("theQueryStringParam")
+```
+
+### Mock Data
+
+- For any backend communication, create mock responses. Use a async function to return mock data that I will swap out later for a async call to an API.
+- When creating mock data, always specify it in a dedicated `web/app/mock.ts` file
+- Load mock data using a react router `clientLoader`. Use the Skeleton component to present a loading state.
+
+### React Hook Form
+
+Follow this structure when generating a form.
+
+```tsx
+
+// add a mock function simulating server communication
+async function descriptiveServerSendFunction(values: any) {
+  const mockData = getMockReturnData(/* ... */)
+  return new Promise(resolve => setTimeout(() => resolve(mockData), 500));
+}
+
+const formSchema = z.object({
+  field_name: z.string(),
+  // additional schema definition
+})
+
+const form = useForm<z.infer<typeof formSchema>>({
+  resolver: zodResolver(formSchema),
+})
+
+const {
+  formState: { isSubmitting, errors },
+  setError,
+  clearErrors,
+} = form
+
+async function onSubmit(values: z.infer<typeof formSchema>) {
+  clearErrors("root")
+
+  // ...
+  const { data, error } = await descriptiveSendFunction(values)
+
+  if (error) {
+    setError("root.serverError", { message: error.detail?.[0]?.msg })
+    return
+  }
+  // ...
+}
+
+return (
+  <Form {...form}>
+    <form onSubmit={form.handleSubmit(onSubmit)}>
+      {/* form fields */}
+
+      <ServerErrorAlert error={errors.root?.serverError} />
+
+      <Button
+        type="submit"
+        disabled={isSubmitting}
+      >
+        {isSubmitting ? "Submitting..." : "Submit"}
+      </Button>
+    </form>
+  </Form>
+)
+```
+
+### Styling
+
+* Use `text-blue-link` for styling any simple `<a>` tags
+
+## Shell
+
+globs: **/*.sh
+
+- Assume zsh for any shell scripts. The latest version of modern utilities like ripgrep (rg), fdfind (fd), bat, httpie (http), zq (zed), jq, procs, rsync are installed and you can request I install additional utilities.
+
+## Typescript
+
+globs: **/*.ts,**/*.tsx
+
+- Use `pnpm` or `pnpx` and not `npm` or `npx`.
+  - Use `just js_shadcn`, `just pnpm`, and `just js_lint` instead of executing these operations exactly. @just/javascript.just
+- Node libraries are not available
+- Use `lib/` for generic code, `utils/` for project utilities, `hooks/` for React hooks, and `helpers/` for page-specific helpers.
+- Prefer `function theName() {` over `const theName = () =>`
+- Use `import { invariant } from @epic-web/invariant` instead of another invariant library
+- Use `requireEnv("VITE_THE_ENV_VAR")` instead of `process.env.THE_ENV_VAR`.  `import {requireEnv} from '~/utils/environment'`
+- Use `import.meta.env.VITE_THE_VAR` to lazy load an environment variable and never setup `define:` configuration in vite for an environment variable.
+- Don't use `console.{log,error}`. Use `from ~/configuration/logging import log` and `log.info("string", {structured: "log"})` instead.
+
+Here's how frontend code is organized in `web/app/`:
+
+- `lib/` not specific to the project. This code could be a separate package at some point.
+- `utils/` project-specific code, but not specific to a particular page.
+- `helpers/` page- or section-specific code that is not a component, hook, etc.
+- `hooks/` react hooks.
+- `configuration/` providers, library configuration, and other setup code.
+- `components/` react components.
+  - `ui/` reusable ShadCN UI components (buttons, forms, etc.).
+  - `shared/` components shared across multiple pages.
+  - create additional folders for route- or section-specific components.
+
+### Dates & Times
+
+* Always use the ISO 8601 format when sending dates in an API request.
+* Use `Temporal` for any date or time manipulation. You can assume it's available in the browser.
+* DateTime objects should always be converted to UTC before included in any API request. Never send a timestamp with the user's timezone.
+* Unless otherwise specified, do not shift server-provided times based on the user's timezone.
+
+## Terraform
+
+globs: infra/**/*.tf
+
+Terraform code is very important because it controls production systems. For this reason, it's critical that agents should never:
+
+1. Modify production systems using CLI tools for cloud providers such as `gcloud`, `az`, etc unless explicitly asked
+2. Be able to run terraform directly via `tofu apply`. Terraform must be designed to run only via `just apply`.
+3. Justfile execution must be guarded against agent execution using `is-ai-agent`.
+
+Instructions when writing terraform:
+
+- Implement the requested behavior directly. Add a boolean, feature flag, or optional setting only when I explicitly request configurability or the feature needs to support multiple modes.
+  If quota, permissions, or cost block deployment, report the blocker and use the existing plan and apply workflow. Don’t add a toggle as a precaution.
+- All "bootstrap" secrets (i.e. vars required to run the terraform code) should be `export`ed in the Justfile. The Justfile is guarded so agents cannot run it, ensuring that required secrets are not available to agents ensures that terraform cannot be run by an agent.
+- Don't add a `locals` for a variable only used a single time
+- Don't add `output` resources unless specifically asked
+- Use `~> 9.9.0` style provider version pinning
+- Always assume you are using or can use the latest version of a terraform module. Never workaround a missing feature that has been added to a terraform module.
+- Consult the terraform MCP when using an external module. Module surfaces change often.
+- When creating a cloudflare worker, always set the `compatibility_date` to the current date.
+- Uppercase all `TF_VAR_*`
+- Put `locals` at the top of the file
+- Reference Terraform-managed resources directly; add a data source only when a verified provider limitation requires it or the resource is managed elsewhere.
+- Add a one line comment at the top of each `.tf`` file describing it's purpose.
+- When using submodules, do not specify provider versions in the submodule. Let the root provider configuration specify the version.
+- Name Terraform resources using consistent <application_or_system>_<purpose> identifiers that communicate business ownership and function independently of cloud providers, environments, or incidental implementation details
+- Always add a `description` to any `variable` block.
+- If an SSH key is required for a VM, encryption, or something else I'll generate it manually in 1P and provide a UUID to reference.
+- Make infrastructure configuration changes in Terraform for the operator to apply. Use cloud CLIs, ssh, APIs, 1password, etc for read-only inspection and verification. Never make infrastructure changes directly.
+- Prefer pre-built, well-supported terraform modules for configuration over complicated shell scripts. By way of example, using `system_file` or `system_folder` over custom shell commands when creating files.
+- Prefer `terraform_data` with `remote-exec` over `local-exec` and `ssh` commands.
+- Never rewrite host headers, or any other headers, unless specifically asked to when setting up a Cloudflare Tunnel.
+- Don't worry about other users on the machine reading content. You can assume the data is safe during the terraform application process.
+- All 1Password references should use item uuids since they change less often than titles. However, the name of the item should be added in a comment the 1p resource. The uuid can change if the item was moved out of a vault, so the name helps us locate the uuid if this occurs.
+  - 1P uuids should never be a `variable` and should always be hardcoded.
+  - 1P items should always use consistent tags so it's easy to understand which items are system- vs user-created.
+
+Prefer ephemeral reads when the provider supports them directly. Keep a sensitive data source if using an ephemeral read would require custom scripts, extra resources, manual rotation tracking, or weaker drift detection. Add a one-line comment explaining the provider limitation or operational trade-off.
+
+Here's an example of how to structure pulling data from 1p using ephemeral resources:
+
+```terraform file="onepassword_secrets.tf"
+# Required secrets read through the 1Password provider
+#
+# Custom fields require a named section (provider has no root field_map).
+# R2 deployment state backend credentials stay out of TF, do not include them here.
+
+ephemeral "onepassword_item" "application_server" {
+  vault = var.OP_VAULT_UID
+  uuid  = "uu2mxzr32hnwtfun3viom62ggq"
+}
+
+locals {
+  onepassword_secrets = {
+    application_server_ip = data.onepassword_item.application_server.url
+  }
+}
+```
+
+
+Most modules should have dedicated file to store various local variables to DRY up the codebase, make sure consistent string constants are used across the project, etc:
+
+```terraform file="locals.tf"
+locals {
+  base_name              = "app-name"
+  base_name_alphanumeric = replace(local.base_name, "/[^a-zA-Z0-9]/", "")
+
+  # indicate the environment explicitly to make it clear when viewing resources
+  # in the cloud provider this is not a test/staging resource, and to make it
+  # easy to create an entire staging environment with a simple refactor in the future
+  environment = "prod"
+  name        = "${local.base_name}-${local.environment}"
+
+  # configuration to store tf state for ability for multiple devs to deploy
+  tfstate = {
+    # resource group should be distinct from the resource group of the deployment
+    resource_group = "${local.base_name}-tfstate"
+    container      = "${local.base_name}-tfstate"
+    key            = "${local.environment}.tfstate"
+  }
+}
+```
+
+### Comments
+
+Clear comments are critical to documenting the various design and technical decisions that went into why infrastructure was structured in a particular way. Keep these rules in mind when writing terraform comments:
+
+- Always document magic numbers or strings with a one-line comment and a link to the doc if applicable. For example, if an IP address references a range defined in a cloud provider's documentation, link to those docs and indicate why we are using it.
+- Add `# sourced from ENV` for any `variable` sourced from the ENV.
+- Notice the comment block at the top of the example block above describing the purpose of the file. All files should have this.
+- Not all files require a longer description, but all should at least have a single comment line describing the purpose of the file.
+- If a file requires a longer comment it should use the following format:
+
+```terraform
+# configure public application uploads and their CORS policy
+#
+# - host images have public read access and must stay separate from private screening downloads
+# - bucket names are persistent storage identifiers; changing them requires migrating their contents
+
+locals {
+  # ...
+```
+
+Note the blank `#` if a file requires a longer explanation. Prefer bullets over longer sentences. If there's just a single bullet, write it as a sentence not a bullet.
+
+### SSH Keys
+
+- All SSH required exist in 1Password and are available through the 1P `SSH_AUTH_SOCK`
+- The `SSH_AUTH_SOCK` value is not set to 1Password by default. `ssh` parses the local SSH config, which includes the 1Password socket, but Terraform does not. This is intentional and ensures terraform is only run from the Justfile.
+- All SSH keys should be generated manually in 1Password and only the public keys should be read into the ENV via a Justfile `export`.
+- Private keys should never make their way into terraform deployment state
+- Parse effective OpenSSH client settings with `ssh -G … | jc --ssh-conf` and read the resulting JSON fields.
+
+### File Structure
+
+* `mise.toml` opentofu, environment variables, and other configuration required for terraform.
+* `onepassword_secrets.tf` extracts secrets from 1Password that are required to run the terraform code. Secrets should be pulled from here, and not ENV.
+* `providers.tf` defines the providers to use.
+* `variables.tf` defines "global" variables, including those sourced from the ENV.
+* `deployment_state.tf` stores the terraform state in a remote bucket. This should only exist in the root module.
+* `Justfile` contains the commands to run the terraform code. Never run it directly.
+* `locals.tf` most modules should have dedicated file to store various local variables to DRY up the codebase and make sure consistent string constants are used across the project.
+
+## Secrets
+
+globs: env/**/*.sh
+
+Here's how environment variables are managed in this application:
+
+- `.envrc` entry point to load the correct env stack. Should not contain secrets and should be simple some shell logic and direnv stdlib calls.
+- `env/all.sh` common configuration for all systems. No secrets. No dotenv/custom scripts. Just `export`s to modify core configuration settings like `export TZ=UTC`.
+- `env/all.local.sh` overrides across all environments (dev and test). Useful for things like 1Password service account token and database hosts which mutate the logic followed in `env/not_production.sh`. Not committed to source control.
+- `env/host.sh` host-specific configuration overrides. Empty for main repo, contains port offsets and host prefixes for git worktrees. Auto-generated by `just dev_generate_hosts`. Not committed to source control.
+- `env/not_production.sh` This contains the bulk of your system configuration. Shared across test, CI, dev, etc but not production.
+- `env/dev.local.sh` configuration overrides for non-test environments. `PYTHONBREAKPOINT`, `LOG_LEVEL`, etc. Most of your environment changes end up happening here.
+- `env/test.sh` test-only environment variables (`PYTHON_ENV=test`). This file should generally be short.
+- `env/production.{backend,frontend}.sh` for most medium-sized projects you'll have separate frontend and backend systems (even if your frontend is SPA, which I'm a fan of). These two files enable you to document the variables required to build (in the case of a SPA frontend) or run (in the case of a python backend) your system in production.
+- `env/*local.*` files have a `-example` variant which is committed to version control. These document helpful environment variables for local development. Make sure these two are in sync.
+- Within `op_inject_source` for each unique 1Password UUID, add a comment with the name of the item and a link to the 1Password item. i.e. `# item "My Item"`.
 
 <!-- END CLONED INSTRUCTIONS -->
