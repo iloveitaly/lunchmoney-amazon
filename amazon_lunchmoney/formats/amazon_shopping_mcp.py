@@ -22,9 +22,7 @@ def _parse_date(value: object) -> str:
         return ""
     try:
         # only the calendar date is used, so no timezone applies
-        parsed = datetime.datetime.strptime(  # noqa: DTZ007
-            value.strip(), "%B %d, %Y"
-        )
+        parsed = datetime.datetime.strptime(value.strip(), "%B %d, %Y")
         return parsed.date().isoformat()
     except ValueError:
         return ""
